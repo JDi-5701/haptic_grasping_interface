@@ -17,11 +17,12 @@
 #include "SPI.h"
 #include "TFT_eSPI.h"
 
-static MotorTask motor_task(1);
 // static UARTTask uart_task(0);
-static WifiTask wifi_task(0);
 // static DisplayTask display_task(0);
 // InterfaceTask interface_task(0, motor_task, uart_task);
+
+static MotorTask motor_task(1);
+static WifiTask wifi_task(0);
 InterfaceTask interface_task(0, motor_task, wifi_task);
 
 extern TFT_eSPI tft;

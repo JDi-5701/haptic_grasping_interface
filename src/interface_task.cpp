@@ -265,25 +265,27 @@ void InterfaceTask::run() {
 # elif CURRENT_MODE == MODE_WIFI
             // Knob -> Wifi
 
-            // Set message string
-            char buffer[256];  // Adjust the size as needed
+            // // Set message string
+            // char buffer[256];  // Adjust the size as needed
 
-            std::snprintf(buffer, sizeof(buffer), "STATE: %d/%d  (detent strength: %0.2f, width: %0.0f deg, endstop strength: %0.2f)\n", 
-                state.current_position, 
-                state.config.num_positions - 1, 
-                state.config.detent_strength_unit, 
-                degrees(state.config.position_width_radians), 
-                state.config.endstop_strength_unit
-            );
+            // std::snprintf(buffer, sizeof(buffer), "STATE: %d/%d  (detent strength: %0.2f, width: %0.0f deg, endstop strength: %0.2f)\n", 
+            //     state.current_position, 
+            //     state.config.num_positions - 1, 
+            //     state.config.detent_strength_unit, 
+            //     degrees(state.config.position_width_radians), 
+            //     state.config.endstop_strength_unit
+            // );
 
-            std::string result = buffer;
+            // std::string result = buffer;
 
             // set topic
             knob_state_msg.header.stamp = nh.now();
-            knob_state_msg.mode.data = result.c_str();
+            knob_state_msg.mode.data = "";
             knob_state_msg.position.data = state.current_position;
             knob_state_msg.force.data = state.current_force;
             knob_state_publisher.publish(&knob_state_msg);
+
+            vTaskDelay(pdMS_TO_TICKS(5));
 # endif
         }
 
@@ -330,7 +332,7 @@ void InterfaceTask::run() {
 
         updateHardware();
 
-        delay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 

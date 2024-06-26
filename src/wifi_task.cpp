@@ -15,11 +15,20 @@
 
 
 // External
-IPAddress ip(10, 0, 25, 243);
-IPAddress server(10, 0, 25, 142);
+// IPAddress ip(10, 0, 25, 243);
+// IPAddress server(10, 0, 25, 142);
+// uint16_t serverPort = 11411;
+// const char*  ssid = "external";
+// const char*  password = "WirelessNetzwerkbetrieb";
+
+
+// cobot 
+IPAddress ip(10, 200, 2, 148);
+IPAddress server(10, 200, 2, 195);
 uint16_t serverPort = 11411;
-const char*  ssid = "external";
-const char*  password = "WirelessNetzwerkbetrieb";
+const char*  ssid = "cobot-t2-wifi";
+const char*  password = "PaulanerSpezi";
+
 
 // cobot-t1-wifi
 // IPAddress ip(10, 200, 2, 148);
@@ -29,6 +38,11 @@ const char*  password = "WirelessNetzwerkbetrieb";
 // const char*  password = "PaulanerSpezi_3Bc5gpysrFypN";
 
 // Other Wifi
+// IPAddress ip(192, 168, 178, 153);
+// IPAddress server(192, 168, 178, 69);
+// uint16_t serverPort = 11411;
+// const char*  ssid = "FRITZ!Box 7530 JQ";
+// const char*  password = "27635171366830739521";
 
 uint16_t period = 1000;
 uint32_t last_time = 0;
@@ -42,10 +56,10 @@ knob_robot_control::KnobState knob_state_msg;
 knob_robot_control::KnobCommand knob_command_msg;
 ros::Publisher knob_state_publisher("knob_state", &knob_state_msg);
 ros::Subscriber<knob_robot_control::KnobCommand> knob_command_subscriber("knob_command", &WifiTask::StaticCommandCallback);
-
+ros::Subscriber<std_msgs::Float32> tcp_force_subscriber("tcp_force", &WifiTask::TcpForceCallback);
 
 // Force feedback
-float tcp_force = 1.0;
+float tcp_force = 0.0;
 
 static float tcp_force_process(float force){
   if(force > 0.0){
@@ -87,6 +101,10 @@ void WifiTask::publish(const PB_SmartKnobConfig & config) {
     }
 }
 
+void WifiTask::TcpForceCallback(const std_msgs::Float32& msg){
+  tcp_force = tcp_force_process(msg.data);
+}
+
 // CommandCallback is used for the subscriber
 void WifiTask::CommandCallback(const knob_robot_control::KnobCommand& msg){
 
@@ -95,8 +113,6 @@ void WifiTask::CommandCallback(const knob_robot_control::KnobCommand& msg){
   if (command_type.find("force") != std::string::npos)
   {
     tcp_force = tcp_force_process(msg.tcp_force.data);
-    // Serial.print("tcp_force: ");
-    // Serial.println(tcp_force);
   } else {
     // for configuration
     wifiConfig.num_positions = msg.num_positions.data;
@@ -112,9 +128,7 @@ void WifiTask::CommandCallback(const knob_robot_control::KnobCommand& msg){
     strcpy(wifiConfig.text, msg.text.data);
     publish(wifiConfig);
   }
-
 }
-
 
 void WifiTask::run(){
   setupWiFi();
@@ -131,6 +145,7 @@ void WifiTask::run(){
 
   // Start ros subscriber
   nh.subscribe(knob_command_subscriber);
+  nh.subscribe(tcp_force_subscriber);
   
   for(;;){
     if(millis() - last_time >= period)
@@ -144,15 +159,13 @@ void WifiTask::run(){
       }
     }
     nh.spinOnce();
-    delay(1);
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
-
 }
-
 
 void WifiTask::setupWiFi()
 {  
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000));
     Serial.println("Connecting to WiFi");
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) { delay(500);Serial.print("."); }

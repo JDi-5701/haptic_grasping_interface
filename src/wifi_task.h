@@ -36,6 +36,7 @@ public:
     void setLogger(Logger* logger);
     void publish(const PB_SmartKnobConfig & config);
     static void StaticCommandCallback(const knob_robot_control::KnobCommand& msg);
+    static void TcpForceCallback(const std_msgs::Float32& msg);
 
 protected:
     void run();

@@ -26,8 +26,8 @@ static const int MOTOR_POLE_PAIRS = 7;
 // ####
 
 
-static const float DEAD_ZONE_DETENT_PERCENT = 0.3;
-static const float DEAD_ZONE_RAD = 2 * _PI / 180;
+static const float DEAD_ZONE_DETENT_PERCENT = 0.1;
+static const float DEAD_ZONE_RAD = 0.1 * _PI / 180;
 
 static const float IDLE_VELOCITY_EWMA_ALPHA = 0.001;
 static const float IDLE_VELOCITY_RAD_PER_SEC = 0.05;
@@ -99,7 +99,7 @@ void MotorTask::run(){
     motor.init();
 
     encoder.update(); // here is from the future version of SimpleFOC
-    delay(10);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     motor.pole_pairs = MOTOR_POLE_PAIRS;
     motor.initFOC();
@@ -127,6 +127,7 @@ void MotorTask::run(){
     // Serial.begin(115200);
     Serial.println("Motor ready!");
     // Serial.println("Set target velocity [rad/s]");
+    tcp_force = 0.0;
     while (1)
     {
         motor.loopFOC();
@@ -237,7 +238,14 @@ void MotorTask::run(){
 
         bool out_of_bounds = config.num_positions > 0 && ((angle_to_detent_center > 0 && config.position == 0) || (angle_to_detent_center < 0 && config.position == config.num_positions - 1));
         motor.PID_velocity.limit = 2; //out_of_bounds ? 10 : 3;
-        motor.PID_velocity.P = out_of_bounds ? tcp_force * config.endstop_strength_unit * 0.3 : 0.7 * tcp_force * config.detent_strength_unit * 0.3;
+        if(tcp_force >= 0.00) {
+            motor.PID_velocity.P = out_of_bounds ? tcp_force  : 0.7 * config.detent_strength_unit;
+        }
+        else
+        {
+            motor.PID_velocity.P = out_of_bounds ?  config.endstop_strength_unit * 0.3 : 0.7 * config.detent_strength_unit * 0.3;
+        }
+        
 
         float torqueMsg = 0;
         // Apply motor torque based on our angle to the nearest detent (detent strength, etc is handled by the PID_velocity parameters)
@@ -245,11 +253,21 @@ void MotorTask::run(){
             // Don't apply torque if velocity is too high (helps avoid positive feedback loop/runaway)
             motor.move(0);
         } else {
-            float torque =  motor.PID_velocity(-angle_to_detent_center + dead_zone_adjustment);
-            #if SK_INVERT_ROTATION
+            if(tcp_force >= 0.00){
+                float torque =  motor.PID_velocity(-0.1*tcp_force);
+                // Serial.println(torque);
+                #if SK_INVERT_ROTATION
                 torque = -torque;
-            #endif
-            motor.move(torque); // Publish this torque to OPC UA
+                #endif
+                motor.move(torque);
+            }else{
+                float torque =  motor.PID_velocity(-angle_to_detent_center + dead_zone_adjustment);
+                #if SK_INVERT_ROTATION
+                torque = -torque;
+                #endif
+                motor.move(torque);
+            }
+            // motor.move(torque); // Publish this torque to OPC UA
             torqueMsg = torque;
         }
         
@@ -259,9 +277,10 @@ void MotorTask::run(){
         // log(TorqueStr);
 
         // Publish current status to other registered tasks periodically
+        int32_t pub_pos = int32_t(100*angle_to_detent_center);
         if (millis() - last_publish > 5) {
             publish({
-                .current_position = config.position,
+                .current_position = out_of_bounds ? pub_pos  : -config.position,
                 .sub_position_unit = -angle_to_detent_center / config.position_width_radians,
                 .has_config = true,
                 .current_force = torqueMsg,
@@ -272,7 +291,7 @@ void MotorTask::run(){
 
         motor.monitor();
         
-        delay(1); 
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
