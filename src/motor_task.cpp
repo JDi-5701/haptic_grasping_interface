@@ -109,7 +109,7 @@ void MotorTask::run(){
     motor.monitor_downsample = 0; // disable monitor at first - optional
 
 
-    float current_detent_center = motor.shaft_angle;
+    float current_detent_center = encoder.getAngle();
     PB_SmartKnobConfig config = {
         .num_positions = 2,
         .position = 0,
@@ -133,9 +133,18 @@ void MotorTask::run(){
         motor.loopFOC();
 
         // print current position, after checking the sensor reading is work well
-        // char str_angle[20];
-        // sprintf(str_angle, "%f", encoder.getAngle());
-        // log(str_angle);
+    
+        char str_angle[100];
+        float encoder_angle = encoder.getAngle();
+        float motor_angle = motor.shaft_angle;
+        float angle_difference = motor_angle - encoder_angle;
+       
+        Serial.print("Encoder: ");
+        Serial.print(encoder_angle, 4);
+        Serial.print(", Motor: ");
+        Serial.print(motor_angle, 4);
+        Serial.print(", Diff: ");
+        Serial.println(angle_difference, 4);
 
         // Check queue for pending requests from other tasks
         Command command;
@@ -148,9 +157,10 @@ void MotorTask::run(){
                     config = command.data.config;
                     // latest_config = config;
                     log("Got new config");
-                    current_detent_center = motor.shaft_angle;
+                    //current_detent_center = motor.shaft_angle;
+                    current_detent_center = encoder.getAngle();
                     #if SK_INVERT_ROTATION
-                        current_detent_center = -motor.shaft_angle;
+                        current_detent_center = -encoder.getAngle();
                     #endif
 
                     // Update derivative factor of torque controller based on detent width.
@@ -210,25 +220,31 @@ void MotorTask::run(){
                 last_idle_start = millis();
             }
         }
-        if (last_idle_start > 0 && millis() - last_idle_start > IDLE_CORRECTION_DELAY_MILLIS && fabsf(motor.shaft_angle - current_detent_center) < IDLE_CORRECTION_MAX_ANGLE_RAD) {
-            current_detent_center = motor.shaft_angle * IDLE_CORRECTION_RATE_ALPHA + current_detent_center * (1 - IDLE_CORRECTION_RATE_ALPHA);
+        if (last_idle_start > 0 && millis() - last_idle_start > IDLE_CORRECTION_DELAY_MILLIS && fabsf(encoder.getAngle() - current_detent_center) < IDLE_CORRECTION_MAX_ANGLE_RAD) {
+            current_detent_center = encoder.getAngle() * IDLE_CORRECTION_RATE_ALPHA + current_detent_center * (1 - IDLE_CORRECTION_RATE_ALPHA);
         }
 
 
-        // Check where we are relative to the current nearest detent; update our position if we've moved far enough to snap to another detent
-        float angle_to_detent_center = motor.shaft_angle - current_detent_center;
+        // Check where we are relative to the current nearest detent; update our position if we've moved far enough to snap to another detent 
+
+        float angle_to_detent_center = encoder.getAngle() - current_detent_center;
         #if SK_INVERT_ROTATION
-            angle_to_detent_center = -motor.shaft_angle - current_detent_center;
+            angle_to_detent_center = -encoder.getAngle() - current_detent_center;
         #endif
-        if (angle_to_detent_center > config.position_width_radians * config.snap_point && (config.num_positions <= 0 || config.position > 0)) {
+
+        float snap_point_radians = config.position_width_radians * config.snap_point;
+        float snap_point_radians_decrease = snap_point_radians;
+        float snap_point_radians_increase = -snap_point_radians;
+
+        if (angle_to_detent_center > snap_point_radians_decrease && (config.num_positions <= 0 || config.position > 0)) {
             current_detent_center += config.position_width_radians;
             angle_to_detent_center -= config.position_width_radians;
             config.position--;
-        } else if (angle_to_detent_center < -config.position_width_radians * config.snap_point && (config.num_positions <= 0 || config.position < config.num_positions - 1)) {
+        } else if (angle_to_detent_center < snap_point_radians_increase && (config.num_positions <= 0 || config.position < 1)) {
             current_detent_center -= config.position_width_radians;
             angle_to_detent_center += config.position_width_radians;
             config.position++;
-        } 
+        }
 
         //  the dead zone
         float dead_zone_adjustment = CLAMP(
@@ -236,38 +252,21 @@ void MotorTask::run(){
             fmaxf(-config.position_width_radians*DEAD_ZONE_DETENT_PERCENT, -DEAD_ZONE_RAD),
             fminf(config.position_width_radians*DEAD_ZONE_DETENT_PERCENT, DEAD_ZONE_RAD));
 
-        bool out_of_bounds = config.num_positions > 0 && ((angle_to_detent_center > 0 && config.position == 0) || (angle_to_detent_center < 0 && config.position == config.num_positions - 1));
+        bool out_of_bounds = config.num_positions > 0 && ((angle_to_detent_center > 0 && config.position == 0) || (angle_to_detent_center < 0 && config.position == 1));
         motor.PID_velocity.limit = 2; //out_of_bounds ? 10 : 3;
-        if(tcp_force >= 0.00) {
-            motor.PID_velocity.P = out_of_bounds ? tcp_force  : 0.7 * config.detent_strength_unit;
-        }
-        else
-        {
-            motor.PID_velocity.P = out_of_bounds ?  config.endstop_strength_unit * 0.3 : 0.7 * config.detent_strength_unit * 0.3;
-        }
+        motor.PID_velocity.P = 0.9;
         
 
         float torqueMsg = 0;
-        // Apply motor torque based on our angle to the nearest detent (detent strength, etc is handled by the PID_velocity parameters)
         if (fabsf(motor.shaft_velocity) > 60) {
-            // Don't apply torque if velocity is too high (helps avoid positive feedback loop/runaway)
             motor.move(0);
         } else {
-            if(tcp_force >= 0.00){
-                float torque =  motor.PID_velocity(-0.1*tcp_force);
-                // Serial.println(torque);
-                #if SK_INVERT_ROTATION
-                torque = -torque;
-                #endif
-                motor.move(torque);
-            }else{
-                float torque =  motor.PID_velocity(-angle_to_detent_center + dead_zone_adjustment);
-                #if SK_INVERT_ROTATION
-                torque = -torque;
-                #endif
-                motor.move(torque);
-            }
-            // motor.move(torque); // Publish this torque to OPC UA
+            float torque = motor.PID_velocity(-0.1 * tcp_force);
+            
+            #if SK_INVERT_ROTATION
+            torque = -torque;
+            #endif
+            motor.move(torque);
             torqueMsg = torque;
         }
         
@@ -280,7 +279,7 @@ void MotorTask::run(){
         int32_t pub_pos = int32_t(100*angle_to_detent_center);
         if (millis() - last_publish > 5) {
             publish({
-                .current_position = out_of_bounds ? pub_pos  : -config.position,
+                .current_position = out_of_bounds ? pub_pos  : config.position,
                 .sub_position_unit = -angle_to_detent_center / config.position_width_radians,
                 .has_config = true,
                 .current_force = torqueMsg,

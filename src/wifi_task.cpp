@@ -24,7 +24,7 @@
 
 // cobot 
 IPAddress ip(10, 200, 2, 148);
-IPAddress server(10, 200, 2, 195);
+IPAddress server(10, 200, 2, 81);
 uint16_t serverPort = 11411;
 const char*  ssid = "cobot-t2-wifi";
 const char*  password = "PaulanerSpezi";
@@ -65,7 +65,7 @@ static float tcp_force_process(float force){
   if(force > 0.0){
     return force;
   } else {
-    return 0.0;
+    return force;
   }
 }
 
