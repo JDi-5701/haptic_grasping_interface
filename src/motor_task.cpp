@@ -117,8 +117,6 @@ void MotorTask::run(){
         .detent_strength_unit = 0,
     };
 
-    float idle_check_velocity_ewma = 0;
-    uint32_t last_idle_start = 0;
     uint32_t last_publish = 0;
 
     // PB_SmartKnobConfig latest_config = config;
@@ -146,116 +144,10 @@ void MotorTask::run(){
         Serial.print(", Diff: ");
         Serial.println(angle_difference, 4);
 
-        // Check queue for pending requests from other tasks
-        Command command;
-                if (xQueueReceive(queue_, &command, 0) == pdTRUE) {
-            switch (command.command_type) {
-                case CommandType::CALIBRATE:
-                    break;
-                case CommandType::CONFIG: {
-                    // Change haptic input mode
-                    config = command.data.config;
-                    // latest_config = config;
-                    log("Got new config");
-                    //current_detent_center = motor.shaft_angle;
-                    current_detent_center = encoder.getAngle();
-                    #if SK_INVERT_ROTATION
-                        current_detent_center = -encoder.getAngle();
-                    #endif
-
-                    // Update derivative factor of torque controller based on detent width.
-                    // If the D factor is large on coarse detents, the motor ends up making noise because the P&D factors amplify the noise from the sensor.
-                    // This is a piecewise linear function so that fine detents (small width) get a higher D factor and coarse detents get a small D factor.
-                    // Fine detents need a nonzero D factor to artificially create "clicks" each time a new value is reached (the P factor is small
-                    // for fine detents due to the smaller angular errors, and the existing P factor doesn't work well for very small angle changes (easy to
-                    // get runaway due to sensor noise & lag)).
-                    // TODO: consider eliminating this D factor entirely and just "play" a hardcoded haptic "click" (e.g. a quick burst of torque in each
-                    // direction) whenever the position changes when the detent width is too small for the P factor to work well.
-                    const float derivative_lower_strength = config.detent_strength_unit * 0.0095;
-                    const float derivative_upper_strength = config.detent_strength_unit * 0.002;
-                    const float derivative_position_width_lower = radians(3);
-                    const float derivative_position_width_upper = radians(8);
-                    const float raw = derivative_lower_strength + (derivative_upper_strength - derivative_lower_strength)/(derivative_position_width_upper - derivative_position_width_lower)*(config.position_width_radians - derivative_position_width_lower);
-                    // CLAMP is a template function that returns the value clamped to the range [lower, upper]
-                    motor.PID_velocity.D = CLAMP(
-                        raw,
-                        min(derivative_lower_strength, derivative_upper_strength),
-                        max(derivative_lower_strength, derivative_upper_strength)
-                    );
-                    char str[30];
-                    sprintf(str, "%s%f", "motor.PID_velocity.P: ", motor.PID_velocity.P);
-                    log(str);
-                    sprintf(str, "%s%f%s", "motor.PID_velocity.D: ", motor.PID_velocity.D, "\n");
-                    log(str);
-                    break;
-                }
-                case CommandType::HAPTIC: {
-                    // Play a hardcoded haptic "click"
-                    float strength = command.data.haptic.press ? 5 : 1.5;
-                    motor.move(strength);
-                    for (uint8_t i = 0; i < 3; i++) {
-                        motor.loopFOC();  // what is this for?
-                        delay(1);
-                    }
-                    motor.move(-strength);
-                    for (uint8_t i = 0; i < 3; i++) {
-                        motor.loopFOC();
-                        delay(1);
-                    }
-                    motor.move(0);
-                    motor.loopFOC();
-                    break;
-                }
-            }
-        }
-
-        /* HERE HAS SOME ISSUES, WHICH MAY CAUSE THE VIBRATION OF THE MOTOR */
-
-        // If we are not moving and we're close to the center (but not exactly there), slowly adjust the centerpoint to match the current position
-        idle_check_velocity_ewma = motor.shaft_velocity * IDLE_VELOCITY_EWMA_ALPHA + idle_check_velocity_ewma * (1 - IDLE_VELOCITY_EWMA_ALPHA);
-        if (fabsf(idle_check_velocity_ewma) > IDLE_VELOCITY_RAD_PER_SEC) {
-            last_idle_start = 0;
-        } else {
-            if (last_idle_start == 0) {
-                last_idle_start = millis();
-            }
-        }
-        if (last_idle_start > 0 && millis() - last_idle_start > IDLE_CORRECTION_DELAY_MILLIS && fabsf(encoder.getAngle() - current_detent_center) < IDLE_CORRECTION_MAX_ANGLE_RAD) {
-            current_detent_center = encoder.getAngle() * IDLE_CORRECTION_RATE_ALPHA + current_detent_center * (1 - IDLE_CORRECTION_RATE_ALPHA);
-        }
-
-
-        // Check where we are relative to the current nearest detent; update our position if we've moved far enough to snap to another detent 
-
         float angle_to_detent_center = encoder.getAngle() - current_detent_center;
-        #if SK_INVERT_ROTATION
-            angle_to_detent_center = -encoder.getAngle() - current_detent_center;
-        #endif
 
-        float snap_point_radians = config.position_width_radians * config.snap_point;
-        float snap_point_radians_decrease = snap_point_radians;
-        float snap_point_radians_increase = -snap_point_radians;
-
-        if (angle_to_detent_center > snap_point_radians_decrease && (config.num_positions <= 0 || config.position > 0)) {
-            current_detent_center += config.position_width_radians;
-            angle_to_detent_center -= config.position_width_radians;
-            config.position--;
-        } else if (angle_to_detent_center < snap_point_radians_increase && (config.num_positions <= 0 || config.position < 1)) {
-            current_detent_center -= config.position_width_radians;
-            angle_to_detent_center += config.position_width_radians;
-            config.position++;
-        }
-
-        //  the dead zone
-        float dead_zone_adjustment = CLAMP(
-            angle_to_detent_center,
-            fmaxf(-config.position_width_radians*DEAD_ZONE_DETENT_PERCENT, -DEAD_ZONE_RAD),
-            fminf(config.position_width_radians*DEAD_ZONE_DETENT_PERCENT, DEAD_ZONE_RAD));
-
-        bool out_of_bounds = config.num_positions > 0 && ((angle_to_detent_center > 0 && config.position == 0) || (angle_to_detent_center < 0 && config.position == 1));
-        motor.PID_velocity.limit = 2; //out_of_bounds ? 10 : 3;
+        motor.PID_velocity.limit = 2;
         motor.PID_velocity.P = 0.9;
-        
 
         float torqueMsg = 0;
         if (fabsf(motor.shaft_velocity) > 60) {
@@ -269,18 +161,13 @@ void MotorTask::run(){
             motor.move(torque);
             torqueMsg = torque;
         }
-        
-        // // Log torque, for debug
-        // char TorqueStr[10];
-        // sprintf(TorqueStr, "%f", torqueMsg);
-        // log(TorqueStr);
 
         // Publish current status to other registered tasks periodically
         int32_t pub_pos = int32_t(100*angle_to_detent_center);
         if (millis() - last_publish > 5) {
             publish({
-                .current_position = out_of_bounds ? pub_pos  : config.position,
-                .sub_position_unit = -angle_to_detent_center / config.position_width_radians,
+                .current_position = pub_pos,
+                .sub_position_unit = 0,
                 .has_config = true,
                 .current_force = torqueMsg,
                 .config = config,
