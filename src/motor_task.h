@@ -64,7 +64,10 @@ class MotorTask : public Task<MotorTask> {
         // BLDCDriver6PWM driver = BLDCDriver6PWM(PIN_UH, PIN_UL, PIN_VH, PIN_VL, PIN_WH, PIN_WL);
         // BLDCDriver3PWM driver = BLDCDriver3PWM(32, 33, 25, 22);
         BLDCDriver3PWM driver = BLDCDriver3PWM(26, 27, 14, 12);
-
+        InlineCurrentSense current_sense = InlineCurrentSense(0.01, 50.0, 35, 34);
+        PhaseCurrent_s currents;
+        float current_magnitude;
+        DQCurrent_s dq_current;
 
         void publish(const PB_SmartKnobState& state);
         // void calibrate();

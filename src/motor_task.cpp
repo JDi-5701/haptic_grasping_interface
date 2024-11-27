@@ -26,16 +26,6 @@ static const int MOTOR_POLE_PAIRS = 7;
 // ####
 
 
-static const float DEAD_ZONE_DETENT_PERCENT = 0.1;
-static const float DEAD_ZONE_RAD = 0.1 * _PI / 180;
-
-static const float IDLE_VELOCITY_EWMA_ALPHA = 0.001;
-static const float IDLE_VELOCITY_RAD_PER_SEC = 0.05;
-static const uint32_t IDLE_CORRECTION_DELAY_MILLIS = 500;
-static const float IDLE_CORRECTION_MAX_ANGLE_RAD = 5 * PI / 180;
-static const float IDLE_CORRECTION_RATE_ALPHA = 0.0005;
-
-
 // force feedback
 extern float tcp_force;
 
@@ -64,11 +54,24 @@ void MotorTask::run(){
     I2Cone.setPins(19, 18);
     encoder.init(&I2Cone);
 
-    motor.controller = MotionControlType::torque;
+
     motor.voltage_limit = 5;
     motor.velocity_limit = 10000;
     motor.linkSensor(&encoder);
 
+    current_sense.init();
+    current_sense.gain_b *= -1;
+    current_sense.skip_align = true;
+    current_sense.init();
+
+    motor.linkCurrentSense(&current_sense);
+
+    currents = current_sense.getPhaseCurrents();
+    current_magnitude = current_sense.getDCCurrent();
+    Serial.print("DC Current: "); Serial.println(current_magnitude); // 输出调试信息
+
+    // motor.torque_controller = TorqueControlType::foc_current;
+    motor.controller = MotionControlType::torque;
 
     // velocity control loop setup
     motor.PID_velocity.P = 0;
@@ -77,23 +80,13 @@ void MotorTask::run(){
     motor.PID_velocity.output_ramp = 10000; 
     motor.PID_velocity.limit = 2;
 
-    // velocity low pass filter time constant
-    //motor.LPF_velocity.Tf = 0.01;
+    /* motor.PID_current_q.P = 5;
+    motor.PID_current_q.I= 300;
+    motor.PID_current_d.P= 5;
+    motor.PID_current_d.I = 300;
+    motor.LPF_current_q.Tf = 0.01; 
+    motor.LPF_current_d.Tf = 0.01;  */
 
-    // // angle control loop setup
-    // motor.P_angle.P = 5;
-    // motor.P_angle.I = 0;
-    // motor.P_angle.D = 0;
-    // // acceleration limit for angle control loop
-    // motor.P_angle.output_ramp = 10000;
-
-    // /* motion control limitation */
-    // // maximal voltage for motor
-    // motor.voltage_limit = 12;
-    // // current limitation - if phase resistance is set
-    // motor.current_limit = 3;
-    // // set the maximal velocity limit
-    // motor.velocity_limit = 4;
 
     /* Calibration of motor and sensors*/
     motor.init();
@@ -162,6 +155,10 @@ void MotorTask::run(){
             torqueMsg = torque;
         }
 
+        currents = current_sense.getPhaseCurrents();
+        current_magnitude = current_sense.getDCCurrent();
+        dq_current = current_sense.getFOCCurrents(motor.electrical_angle);
+
         // Publish current status to other registered tasks periodically
         int32_t pub_pos = int32_t(100*angle_to_detent_center);
         if (millis() - last_publish > 5) {
@@ -169,7 +166,8 @@ void MotorTask::run(){
                 .current_position = pub_pos,
                 .sub_position_unit = 0,
                 .has_config = true,
-                .current_force = torqueMsg,
+                //.current_force = torqueMsg,
+                .current_force = dq_current.q * 10,
                 .config = config,
             });
             last_publish = millis();
@@ -178,6 +176,19 @@ void MotorTask::run(){
         motor.monitor();
         
         vTaskDelay(pdMS_TO_TICKS(1));
+
+        Serial.print("currents:");
+        Serial.print(currents.a*1000); // milli Amps
+        Serial.print("\t");
+        Serial.print(currents.b*1000); // milli Amps
+        Serial.print("\t");
+        Serial.print(currents.c*1000); // milli Amps
+        Serial.print("\t");
+        Serial.println(current_magnitude*1000); // milli Amps
+        Serial.print("\t");
+        Serial.println(dq_current.d*1000); // milli Amps
+        Serial.print("\t");
+        Serial.println(dq_current.q*1000); // milli Amps
     }
 }
 
