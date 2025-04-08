@@ -23,11 +23,11 @@
 
 
 // cobot 
-/* IPAddress ip(10, 200, 2, 148);
+IPAddress ip(10, 200, 2, 148);
 IPAddress server(10, 200, 2, 81);
 uint16_t serverPort = 11411;
 const char*  ssid = "cobot-t2-wifi";
-const char*  password = "PaulanerSpezi"; */
+const char*  password = "PaulanerSpezi";
 
 /* IPAddress ip(192, 168, 3, 101);
 IPAddress server(192, 168, 3, 71);
@@ -35,11 +35,11 @@ uint16_t serverPort = 11411;
 const char*  ssid = "Xiaomi_E2CC";
 const char*  password = "12345678"; */
 
-IPAddress ip(192, 168, 2, 119);
+/* IPAddress ip(192, 168, 2, 119);
 IPAddress server(192, 168, 2, 104);
 uint16_t serverPort = 11411;
 const char*  ssid = "WLAN-5FMWSL";
-const char*  password = "1616149905085129";
+const char*  password = "1616149905085129"; */
 
 // cobot-t1-wifi
 // IPAddress ip(10, 200, 2, 148);

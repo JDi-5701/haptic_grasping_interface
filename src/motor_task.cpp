@@ -22,7 +22,7 @@
 // Run calibration once at startup, then update these constants with the calibration results.
 static const float ZERO_ELECTRICAL_OFFSET = 2.77;
 static const Direction FOC_DIRECTION = Direction::CW;
-static const int MOTOR_POLE_PAIRS = 7;
+static const int MOTOR_POLE_PAIRS = 11;
 // ####
 
 
@@ -44,6 +44,9 @@ long timestamp_us = _micros();
 
 void MotorTask::run(){
 
+    pinMode(13, OUTPUT); // Using pin 13 instead of 12 for ESP32 compatibility
+    digitalWrite(13, LOW); // Explicitly set to LOW
+
     // motor setup
     driver.voltage_power_supply = 12;
     driver.init();
@@ -51,42 +54,22 @@ void MotorTask::run(){
     motor.linkDriver(&driver);
 
     // Initialize the I2C bus
-    I2Cone.setPins(19, 18);
+    I2Cone.setPins(4, 0);
     encoder.init(&I2Cone);
 
 
-    motor.voltage_limit = 5;
+    motor.voltage_limit = 12;
     motor.velocity_limit = 10000;
     motor.linkSensor(&encoder);
 
-    current_sense.init();
-    current_sense.gain_b *= -1;
-    current_sense.skip_align = true;
-    current_sense.init();
-
-    motor.linkCurrentSense(&current_sense);
-
-    currents = current_sense.getPhaseCurrents();
-    current_magnitude = current_sense.getDCCurrent();
-    Serial.print("DC Current: "); Serial.println(current_magnitude); // 输出调试信息
-
-    // motor.torque_controller = TorqueControlType::foc_current;
     motor.controller = MotionControlType::torque;
 
     // velocity control loop setup
-    motor.PID_velocity.P = 0;
-    motor.PID_velocity.I = 0;
-    motor.PID_velocity.D = 0;
-    motor.PID_velocity.output_ramp = 10000; 
-    motor.PID_velocity.limit = 2;
-
-    /* motor.PID_current_q.P = 5;
-    motor.PID_current_q.I= 300;
-    motor.PID_current_d.P= 5;
-    motor.PID_current_d.I = 300;
-    motor.LPF_current_q.Tf = 0.01; 
-    motor.LPF_current_d.Tf = 0.01;  */
-
+    motor.PID_velocity.P = 1.4;    // Reduced from 1.0
+    motor.PID_velocity.I = 0.0;   // Added small I term
+    motor.PID_velocity.D = 0.0;    // Keep D at 0
+    motor.PID_velocity.output_ramp = 1000;  // Reduced from 10000
+    motor.PID_velocity.limit = 2;  // Keep same limit
 
     /* Calibration of motor and sensors*/
     motor.init();
@@ -139,9 +122,6 @@ void MotorTask::run(){
 
         float angle_to_detent_center = encoder.getAngle() - current_detent_center;
 
-        motor.PID_velocity.limit = 2;
-        motor.PID_velocity.P = 0.9;
-
         float torqueMsg = 0;
         if (fabsf(motor.shaft_velocity) > 60) {
             motor.move(0);
@@ -153,11 +133,11 @@ void MotorTask::run(){
             #endif
             motor.move(torque);
             torqueMsg = torque;
-        }
 
-        currents = current_sense.getPhaseCurrents();
-        current_magnitude = current_sense.getDCCurrent();
-        dq_current = current_sense.getFOCCurrents(motor.electrical_angle);
+            Serial.print("torque:");
+            Serial.print(torque);
+            Serial.print("\t");
+        }
 
         // Publish current status to other registered tasks periodically
         int32_t pub_pos = int32_t(100*angle_to_detent_center);
@@ -166,8 +146,7 @@ void MotorTask::run(){
                 .current_position = pub_pos,
                 .sub_position_unit = 0,
                 .has_config = true,
-                //.current_force = torqueMsg,
-                .current_force = dq_current.q * 10,
+                .current_force = torqueMsg,
                 .config = config,
             });
             last_publish = millis();
@@ -177,18 +156,22 @@ void MotorTask::run(){
         
         vTaskDelay(pdMS_TO_TICKS(1));
 
-        Serial.print("currents:");
-        Serial.print(currents.a*1000); // milli Amps
+        Serial.print("tcp_force:");
+        Serial.print(tcp_force);
         Serial.print("\t");
-        Serial.print(currents.b*1000); // milli Amps
-        Serial.print("\t");
-        Serial.print(currents.c*1000); // milli Amps
-        Serial.print("\t");
-        Serial.println(current_magnitude*1000); // milli Amps
-        Serial.print("\t");
-        Serial.println(dq_current.d*1000); // milli Amps
-        Serial.print("\t");
-        Serial.println(dq_current.q*1000); // milli Amps
+
+        // Serial.print("currents:");
+        // Serial.print(currents.a*1000); // milli Amps
+        // Serial.print("\t");
+        // Serial.print(currents.b*1000); // milli Amps
+        // Serial.print("\t");
+        // Serial.print(currents.c*1000); // milli Amps
+        // Serial.print("\t");
+        // Serial.println(current_magnitude*1000); // milli Amps
+        // Serial.print("\t");
+        // Serial.println(dq_current.d*1000); // milli Amps
+        // Serial.print("\t");
+        // Serial.println(dq_current.q*1000); // milli Amps
     }
 }
 
