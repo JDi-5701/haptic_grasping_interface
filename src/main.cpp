@@ -6,46 +6,34 @@
  *    All rights reserved.
  */
 #include <Arduino.h>
+#include <SimpleFOC.h>
 
-
-#include "interface_task.h"
 #include "motor_task.h"
-#include "uart_task.h"
-#include "display_task.h"
+// #include "interface_task.h"
 #include "wifi_task.h"
+#include "task.h"
 
-#include "SPI.h"
-#include "TFT_eSPI.h"
+static MotorTask motor_task(0);
+static WifiTask wifi_task(0, motor_task);
+// static InterfaceTask interface_task(0, motor_task, wifi_task);
 
-// static UARTTask uart_task(0);
-// static DisplayTask display_task(0);
-// InterfaceTask interface_task(0, motor_task, uart_task);
-
-static MotorTask motor_task(1);
-static WifiTask wifi_task(0);
-InterfaceTask interface_task(0, motor_task, wifi_task);
-
-extern TFT_eSPI tft;
-
-void setup()
-{
-  // UART setup
-  Serial.begin(115200);
-  Serial.println("Serial begin"); 
-
-  motor_task.setLogger(&interface_task);
-  motor_task.begin();
-  interface_task.begin();
-  wifi_task.begin();
-
-  // uart_task.begin();
-  // display_task.begin();
-
-  // Free up the Arduino loop task
-  vTaskDelete(NULL);
+void setup() {
+    // Initialize serial communication
+    Serial.begin(115200);
+    delay(1000);  // Give time for serial to initialize
+    Serial.println("\n\nStarting...");
+    Serial.println("Testing serial output...");
+    Serial.flush();
+    
+    // Initialize tasks
+    wifi_task.begin();
+    motor_task.begin();
+    // interface_task.begin();
+    
+    // Start the scheduler
+    //vTaskStartScheduler();
 }
 
-void loop()
-{
-
+void loop() {
+    // Not used - FreeRTOS scheduler handles task execution
 }

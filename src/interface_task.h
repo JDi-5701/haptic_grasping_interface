@@ -1,19 +1,14 @@
 #pragma once
 
-// #include <AceButton.h>
 #include <Arduino.h>
+#include <vector>
 
-// #include "display_task.h"
-#include "logger.h"
 #include "motor_task.h"
-#include "uart_task.h"
 #include "wifi_task.h"
-#include "serial/serial_protocol_plaintext.h"
-#include "serial/serial_protocol_protobuf.h"
-#include "serial/uart_stream.h"
 #include "task.h"
+#include "proto_gen/smartknob.pb.h"
 
-class InterfaceTask : public Task<InterfaceTask>, public Logger {
+class InterfaceTask : public Task<InterfaceTask> {
     friend class Task<InterfaceTask>; // Allow base Task to invoke protected run()
 
     public:
@@ -21,13 +16,13 @@ class InterfaceTask : public Task<InterfaceTask>, public Logger {
         InterfaceTask(const uint8_t task_core, MotorTask& motor_task, WifiTask& wifi_task);
         virtual ~InterfaceTask() {};
 
-        void log(const char* msg) override;
+        void addListener(QueueHandle_t queue);
 
     protected:
         void run();
 
     private:
-        UartStream stream_;
+        std::vector<QueueHandle_t> listeners_;
         MotorTask& motor_task_;
         // UARTTask& uart_task_;
         WifiTask& wifi_task_;
@@ -39,9 +34,6 @@ class InterfaceTask : public Task<InterfaceTask>, public Logger {
         QueueHandle_t knob_state_queue_;
         // QueueHandle_t uart_queue_if;
         QueueHandle_t wifi_queue_if;
-        SerialProtocolPlaintext plaintext_protocol_;
-        SerialProtocolProtobuf proto_protocol_;
 
-        void changeConfig(bool next);
         void updateHardware();
 };

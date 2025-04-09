@@ -9,6 +9,9 @@
 #include "wifi_task.h"
 #include <IPAddress.h>
 #include "WiFi.h"
+#include "pb_encode.h"
+#include "pb_decode.h"
+#include "pb.h"
 
 
 // WiFi
@@ -25,7 +28,10 @@
 // cobot 
 IPAddress ip(10, 200, 2, 148);
 IPAddress server(10, 200, 2, 81);
-uint16_t serverPort = 11411;
+uint16_t serverPort = 5000;
+uint16_t localPort = 5000;  // Local port to receive UDP messages
+IPAddress gateway(10, 200, 2, 1);     // Replace with your actual gateway
+IPAddress subnet(255, 255, 255, 0);   // Typical subnet
 const char*  ssid = "cobot-t2-wifi";
 const char*  password = "PaulanerSpezi";
 
@@ -55,133 +61,101 @@ const char*  password = "1616149905085129"; */
 // const char*  ssid = "FRITZ!Box 7530 JQ";
 // const char*  password = "27635171366830739521";
 
-uint16_t period = 1000;
-uint32_t last_time = 0;
+//extern float tcp_force;
+//extern int32_t knob_state;
 
-// Static member initialization
-WifiTask* WifiTask::instance = nullptr;
-
-// ROS
-ros::NodeHandle  nh;
-knob_robot_control::KnobState knob_state_msg;
-knob_robot_control::KnobCommand knob_command_msg;
-ros::Publisher knob_state_publisher("knob_state", &knob_state_msg);
-ros::Subscriber<knob_robot_control::KnobCommand> knob_command_subscriber("knob_command", &WifiTask::StaticCommandCallback);
-ros::Subscriber<std_msgs::Float32> tcp_force_subscriber("tcp_force", &WifiTask::TcpForceCallback);
-
-// Force feedback
-float tcp_force = 0.0;
-
-static float tcp_force_process(float force){
-  if(force > 0.0){
-    return force;
-  } else {
-    return force;
-  }
-}
-
-WifiTask::WifiTask(const uint8_t task_core) : Task("WIFI Task", 8192, 0, task_core) {
-    // wifi_queue_ = xQueueCreate(1, sizeof(WifiConfig));
-    instance = this;
-}
-
-WifiTask::~WifiTask() {
-    // Destructor code here
-    instance = nullptr;
-}
-
-void WifiTask::StaticCommandCallback(const knob_robot_control::KnobCommand& msg) {
-    if (instance) {
-        instance->CommandCallback(msg);
-    }
+WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task) 
+    : Task("Wifi", 3000, 1, task_core),
+      motor_task_(motor_task) {
+    Serial.println("WifiTask constructor start");
 }
 
 void WifiTask::addListener(QueueHandle_t queue) {
-    Serial.println("Add listener");
     listeners_.push_back(queue);
 }
 
-void WifiTask::setLogger(Logger* logger) {
-    logger_ = logger;
-}
-
-// publish is used for the logger
-void WifiTask::publish(const PB_SmartKnobConfig & config) {
-    for (auto listener : listeners_) {
-        xQueueOverwrite(listener, &config); // xQueueOverwrite will overwrite the queue if it is full
+void WifiTask::sendActualKnobState(int32_t position, float force) {
+    if (udp.beginPacket(server, serverPort)) {
+        Serial.printf("Sending position: %d, force: %.2f\n", position, force);
+        udp.write((uint8_t*)&position, sizeof(position));
+        udp.write((uint8_t*)&force, sizeof(force));
+        if (!udp.endPacket()) {
+            Serial.println("Failed to send UDP packet");
+        }
+    } else {
+        Serial.println("Failed to begin UDP packet");
     }
 }
 
-void WifiTask::TcpForceCallback(const std_msgs::Float32& msg){
-  tcp_force = tcp_force_process(msg.data);
-}
-
-// CommandCallback is used for the subscriber
-void WifiTask::CommandCallback(const knob_robot_control::KnobCommand& msg){
-
-  std::string command_type = msg.text.data;
-  // check if command_type incluedes "force"
-  if (command_type.find("force") != std::string::npos)
-  {
-    tcp_force = tcp_force_process(msg.tcp_force.data);
-  } else {
-    // for configuration
-    wifiConfig.num_positions = msg.num_positions.data;
-    wifiConfig.position = msg.position.data;
-    wifiConfig.position_width_radians = msg.position_width_radians.data; 
-    wifiConfig.detent_strength_unit = msg.detent_strength_unit.data;
-    wifiConfig.endstop_strength_unit = msg.endstop_strength_unit.data;
-    wifiConfig.snap_point = msg.snap_point.data;
-
-    // for haptic feedback
-    tcp_force = tcp_force_process(msg.tcp_force.data);
-
-    strcpy(wifiConfig.text, msg.text.data);
-    publish(wifiConfig);
-  }
-}
-
-void WifiTask::run(){
-  setupWiFi();
-
-  nh.getHardware()->setConnection(server, serverPort);
-  nh.initNode();
-
-  // Another way to get IP
-  Serial.print("ROS IP = ");
-  Serial.println(nh.getHardware()->getLocalIP());
-
-  // Start ros publisher
-  nh.advertise(knob_state_publisher);
-
-  // Start ros subscriber
-  nh.subscribe(knob_command_subscriber);
-  nh.subscribe(tcp_force_subscriber);
-  
-  for(;;){
-    if(millis() - last_time >= period)
-    {
-      last_time = millis();
-      if (nh.connected())
-      {
-
-      } else {
-        Serial.println("Not Connected");
-      }
+void WifiTask::receiveUdpForce() {
+    int packetSize = udp.parsePacket();
+    if (packetSize) {
+        Serial.printf("Received packet of size %d\n", packetSize);
+        float received_force;
+        udp.read((uint8_t*)&received_force, sizeof(received_force));
+        Serial.printf("Received Force: %.2f\n", received_force);
+        motor_task_.tcp_force = received_force;  // Update motor task directly
     }
-    nh.spinOnce();
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
 }
 
-void WifiTask::setupWiFi()
-{  
+void WifiTask::setupWiFi() {
+    Serial.println("Starting WiFi setup...");
     vTaskDelay(pdMS_TO_TICKS(1000));
-    Serial.println("Connecting to WiFi");
+    
+    WiFi.disconnect();
+    WiFi.mode(WIFI_STA);
+    
+    Serial.println("Connecting to WiFi...");
+    WiFi.config(ip, gateway, subnet);
     WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) { delay(500);Serial.print("."); }
-    Serial.print("SSID: ");
+ 
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nFailed to connect to WiFi");
+        return;
+    }
+    
+    Serial.print("\nSSID: ");
     Serial.println(WiFi.SSID());
-    Serial.print("IP:   ");
+    Serial.print("IP: ");
     Serial.println(WiFi.localIP());
+
+    // Initialize UDP
+    if (udp.begin(localPort)) {
+        Serial.printf("UDP initialized on port %d\n", localPort);
+    } else {
+        Serial.println("Failed to initialize UDP");
+    }
+}
+
+void WifiTask::run() {
+    setupWiFi();
+    
+    for(;;) {
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("WiFi connection lost, reconnecting...");
+            setupWiFi();
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        
+        // Send current knob state from motor task
+        sendActualKnobState(motor_task_.knob_state, 0.0f);
+        
+        // Check for incoming force messages
+        receiveUdpForce();
+        
+        // Small delay between messages
+        vTaskDelay(pdMS_TO_TICKS(100));  // 100ms delay
+    }
+}
+
+WifiTask::~WifiTask() {
+    udp.stop();
 }

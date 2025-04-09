@@ -11,10 +11,8 @@
 #include <SimpleFOC.h>
 #include <vector>
 
-#include "logger.h"
 #include "proto_gen/smartknob.pb.h"
 #include "task.h"
-
 
 enum class CommandType {
     CALIBRATE,
@@ -30,7 +28,6 @@ struct Command {
     CommandType command_type;
     union CommandData {
         uint8_t unused;
-        PB_SmartKnobConfig config;
         HapticData haptic;
     };
     CommandData data;
@@ -42,22 +39,17 @@ class MotorTask : public Task<MotorTask> {
     public:
         MotorTask(const uint8_t task_core);
         ~MotorTask();
-
-        void setConfig(const PB_SmartKnobConfig& config);
-        void playHaptic(bool press);
-        // void runCalibration();
+        float tcp_force;
+        int32_t knob_state;
 
         void addListener(QueueHandle_t queue);
-        void setLogger(Logger* logger);
-
     protected:
         void run();
 
     private:
         QueueHandle_t queue_;
-        Logger* logger_;
         std::vector<QueueHandle_t> listeners_;
-        char buf_[72];
+        char buf_[128];
 
         // BLDC motor & driver instance
         BLDCMotor motor = BLDCMotor(11, 8.8); // Motor pairs, phase resistance
@@ -69,8 +61,6 @@ class MotorTask : public Task<MotorTask> {
         // float current_magnitude;
         // DQCurrent_s dq_current;
 
-        void publish(const PB_SmartKnobState& state);
-        // void calibrate();
+        void publish(const PB_KnobState& state);
         void checkSensorError();
-        void log(const char* msg);
 };
