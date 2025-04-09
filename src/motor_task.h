@@ -11,27 +11,7 @@
 #include <SimpleFOC.h>
 #include <vector>
 
-#include "proto_gen/smartknob.pb.h"
 #include "task.h"
-
-enum class CommandType {
-    CALIBRATE,
-    CONFIG,
-    HAPTIC,
-};
-
-struct HapticData {
-    bool press;
-};
-
-struct Command {
-    CommandType command_type;
-    union CommandData {
-        uint8_t unused;
-        HapticData haptic;
-    };
-    CommandData data;
-};
 
 class MotorTask : public Task<MotorTask> {
     friend class Task<MotorTask>; // Allow base Task to invoke protected run()
@@ -47,9 +27,6 @@ class MotorTask : public Task<MotorTask> {
         void run();
 
     private:
-        QueueHandle_t queue_;
-        std::vector<QueueHandle_t> listeners_;
-        char buf_[128];
 
         // BLDC motor & driver instance
         BLDCMotor motor = BLDCMotor(11, 8.8); // Motor pairs, phase resistance
@@ -60,7 +37,4 @@ class MotorTask : public Task<MotorTask> {
         // PhaseCurrent_s currents;
         // float current_magnitude;
         // DQCurrent_s dq_current;
-
-        void publish(const PB_KnobState& state);
-        void checkSensorError();
 };

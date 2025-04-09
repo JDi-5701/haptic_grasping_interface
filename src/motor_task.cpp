@@ -8,7 +8,6 @@
 #include <SimpleFOC.h>
 
 #include "motor_task.h"
-#include "proto_gen/smartknob.pb.h"
 
 // #### 
 // Hardware-specific motor calibration constants.
@@ -19,13 +18,8 @@ static const int MOTOR_POLE_PAIRS = 11;
 // ####
 
 
-// force feedback
-//extern float tcp_force;
-//extern int32_t knob_state;
-
 MotorTask::MotorTask(const uint8_t task_core) : Task("Motor", 2500, 1, task_core) {
-    queue_ = xQueueCreate(5, sizeof(Command));
-    assert(queue_ != NULL);
+    Serial.println("MotorTask constructor start");
 }
 
 MotorTask::~MotorTask() {}
@@ -50,7 +44,6 @@ void MotorTask::run(){
     // Initialize the I2C bus
     I2Cone.setPins(4, 0);
     encoder.init(&I2Cone);
-
 
     motor.voltage_limit = 12;
     motor.velocity_limit = 10000;
@@ -133,21 +126,5 @@ void MotorTask::run(){
         motor.monitor();
         
         vTaskDelay(pdMS_TO_TICKS(1));
-
-        /* Serial.print("tcp_force:");
-        Serial.print(tcp_force);
-        Serial.print("\t"); */
     }
-
-}
-
-void MotorTask::publish(const PB_KnobState& state) {
-    // Send to all listeners
-    for (auto listener : listeners_) {
-        xQueueOverwrite(listener, &state);
-    }
-}
-
-void MotorTask::addListener(QueueHandle_t queue) {
-    listeners_.push_back(queue);
 }

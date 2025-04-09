@@ -22,13 +22,11 @@ public:
     WifiTask(const uint8_t task_core, MotorTask& motor_task);
     virtual ~WifiTask();
 
-    void addListener(QueueHandle_t queue);
     void sendActualKnobState(int32_t position, float force);
 protected:
     void run();
 
 private:
-    std::vector<QueueHandle_t> listeners_{};
     WiFiUDP udp;
     MotorTask& motor_task_;  // Reference to motor task
     

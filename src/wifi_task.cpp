@@ -9,10 +9,6 @@
 #include "wifi_task.h"
 #include <IPAddress.h>
 #include "WiFi.h"
-#include "pb_encode.h"
-#include "pb_decode.h"
-#include "pb.h"
-
 
 // WiFi
 
@@ -68,10 +64,6 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
     : Task("Wifi", 3000, 1, task_core),
       motor_task_(motor_task) {
     Serial.println("WifiTask constructor start");
-}
-
-void WifiTask::addListener(QueueHandle_t queue) {
-    listeners_.push_back(queue);
 }
 
 void WifiTask::sendActualKnobState(int32_t position, float force) {
@@ -152,7 +144,7 @@ void WifiTask::run() {
         receiveUdpForce();
         
         // Small delay between messages
-        vTaskDelay(pdMS_TO_TICKS(100));  // 100ms delay
+        vTaskDelay(pdMS_TO_TICKS(10));  // 100ms delay
     }
 }
 
