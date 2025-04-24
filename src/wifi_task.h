@@ -22,7 +22,7 @@ public:
     WifiTask(const uint8_t task_core, MotorTask& motor_task);
     virtual ~WifiTask();
 
-    void sendActualKnobState(int32_t position, float force);
+    void sendActualKnobState(int32_t position);
 protected:
     void run();
 

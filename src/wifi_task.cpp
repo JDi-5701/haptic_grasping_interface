@@ -23,13 +23,15 @@
 
 // cobot 
 IPAddress ip(10, 200, 2, 148);
-IPAddress server(10, 200, 2, 81);
-uint16_t serverPort = 5000;
+IPAddress server(10, 200, 2, 227);
+uint16_t serverPort = 5001;
 uint16_t localPort = 5000;  // Local port to receive UDP messages
 IPAddress gateway(10, 200, 2, 1);     // Replace with your actual gateway
 IPAddress subnet(255, 255, 255, 0);   // Typical subnet
-const char*  ssid = "cobot-t2-wifi";
+const char*  ssid = "acra4dt-wifi";
 const char*  password = "PaulanerSpezi";
+/* const char*  ssid = "cobot-t2-wifi";
+const char*  password = "PaulanerSpezi"; */
 
 /* IPAddress ip(192, 168, 3, 101);
 IPAddress server(192, 168, 3, 71);
@@ -66,11 +68,10 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
     Serial.println("WifiTask constructor start");
 }
 
-void WifiTask::sendActualKnobState(int32_t position, float force) {
+void WifiTask::sendActualKnobState(int32_t position) {
     if (udp.beginPacket(server, serverPort)) {
-        Serial.printf("Sending position: %d, force: %.2f\n", position, force);
+        Serial.printf("Sending position: %d\n", position);
         udp.write((uint8_t*)&position, sizeof(position));
-        udp.write((uint8_t*)&force, sizeof(force));
         if (!udp.endPacket()) {
             Serial.println("Failed to send UDP packet");
         }
@@ -138,7 +139,7 @@ void WifiTask::run() {
         }
         
         // Send current knob state from motor task
-        sendActualKnobState(motor_task_.knob_state, 0.0f);
+        sendActualKnobState(motor_task_.knob_state);
         
         // Check for incoming force messages
         receiveUdpForce();
