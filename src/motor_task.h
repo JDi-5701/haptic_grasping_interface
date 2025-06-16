@@ -21,9 +21,13 @@ class MotorTask : public Task<MotorTask> {
         ~MotorTask();
         float tcp_force;
         int32_t knob_state;
+        int32_t fsr_value;
+        uint64_t force_timestamp; // Timestamp of the last received force value
         float motor_torque = 0.0; // Current torque applied to the moto
+        uint64_t motor_timestamp = 0.0; // Timestamp of the last torque value
+        float motor_command = 0.0; // Current position of the motor in radians
+        int32_t force_id = -1;
 
-        void addListener(QueueHandle_t queue);
     protected:
         void run();
 
@@ -38,4 +42,6 @@ class MotorTask : public Task<MotorTask> {
         // PhaseCurrent_s currents;
         // float current_magnitude;
         // DQCurrent_s dq_current;
+        
+        float computeForceFeedback(float gripper_force);
 };

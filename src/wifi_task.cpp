@@ -12,6 +12,18 @@
 
 // WiFi
 
+struct FSRMsg {
+    int32_t id;
+    int32_t fsr_value;
+    float force_filtered;
+    uint64_t timestamp;
+};
+
+// wifi_task.h 中的 WifiTask 私有变量
+uint64_t esp1_sync_micros = 0;
+uint64_t esp2_sync_micros = 0;
+bool time_synced = false;
+
 
 // External
 // IPAddress ip(10, 0, 25, 243);
@@ -68,13 +80,31 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
     Serial.println("WifiTask constructor start");
 }
 
-void WifiTask::sendActualKnobState(int32_t position, float motor_torque) {
+void WifiTask::sendActualKnobState(const MotorMsg& msg) {
     if (udp.beginPacket(server, serverPort)) {
-        Serial.printf("Sending position: %d\n", position);
-        Serial.printf("Sending torque: %.2f\n", motor_torque);
+        Serial.printf(
+            "MotorMsg {\n"
+            "  id: %d\n"
+            "  fsr_value: %d\n"
+            "  force_filtered: %.2f N\n"
+            "  force_timestamp: %llu µs\n"
+            "  motor_timestamp: %llu µs\n"
+            "  motor_torque: %.2f V\n"
+            "  knob_state: %d\n"
+            "}\n",
+            (int)msg.id,
+            (int)msg.fsr_value,
+            msg.force_filtered,
+            (unsigned long long)msg.force_timestamp,
+            (unsigned long long)msg.motor_timestamp,
+            msg.motor_torque,
+            (int)msg.knob_state
+        );
 
-        udp.write((uint8_t*)&position, sizeof(position));
-        udp.write((uint8_t*)&motor_torque, sizeof(motor_torque));
+        Serial.printf("sizeof(MotorMsg): %d\n", sizeof(MotorMsg));
+
+        udp.write((uint8_t*)&msg, sizeof(msg));
+
         if (!udp.endPacket()) {
             Serial.println("Failed to send UDP packet");
         }
@@ -85,14 +115,38 @@ void WifiTask::sendActualKnobState(int32_t position, float motor_torque) {
 
 void WifiTask::receiveUdpForce() {
     int packetSize = udp.parsePacket();
-    if (packetSize) {
-        Serial.printf("Received packet of size %d\n", packetSize);
-        float received_force;
-        udp.read((uint8_t*)&received_force, sizeof(received_force));
-        Serial.printf("Received Force: %.2f\n", received_force);
-        motor_task_.tcp_force = received_force;  // Update motor task directly
+    if (packetSize == sizeof(FSRMsg)) {
+        FSRMsg msg;
+        udp.read((uint8_t*)&msg, sizeof(msg));
+
+        if (!time_synced) {
+            esp1_sync_micros = msg.timestamp;
+            esp2_sync_micros = micros();
+            time_synced = true;
+
+            Serial.printf("[SYNC] Synced at: esp1 = %llu, esp2 = %llu\n",
+                          (unsigned long long)esp1_sync_micros,
+                          (unsigned long long)esp2_sync_micros);
+        }
+
+        // 使用同步点换算为 ESP2 上的时间戳
+        uint64_t corrected_time = esp2_sync_micros + (msg.timestamp - esp1_sync_micros);
+
+        Serial.printf("Received force id:%d, FSR: %d, Force: %.2f N\n", msg.id, msg.fsr_value, msg.force_filtered);
+        Serial.printf("Original Force Time: %llu µs → Corrected (ESP2): %llu µs\n",
+                      (unsigned long long)msg.timestamp, (unsigned long long)corrected_time);
+
+        motor_task_.tcp_force = msg.force_filtered;
+        motor_task_.force_timestamp = corrected_time;
+        motor_task_.fsr_value = msg.fsr_value;
+        motor_task_.force_id = msg.id; 
+
+    } else if (packetSize > 0) {
+        Serial.printf("Warning: Received packet of unexpected size %d (expected %lu)\n",
+                      packetSize, sizeof(FSRMsg));
     }
 }
+
 
 void WifiTask::setupWiFi() {
     Serial.println("Starting WiFi setup...");
@@ -142,7 +196,16 @@ void WifiTask::run() {
         }
         
         // Send current knob state from motor task
-        sendActualKnobState(motor_task_.knob_state, motor_task_.motor_torque);
+        MotorMsg msg;
+        msg.id = motor_task_.force_id; // Current force ID
+        msg.fsr_value = motor_task_.fsr_value;                 // 如果你还保留
+        msg.force_filtered = motor_task_.tcp_force;
+        msg.force_timestamp = motor_task_.force_timestamp;
+        msg.motor_timestamp = motor_task_.motor_timestamp;
+        msg.motor_torque = motor_task_.motor_torque;
+        msg.knob_state = motor_task_.knob_state;  // Current knob state
+
+        sendActualKnobState(msg);
         
         // Check for incoming force messages
         receiveUdpForce();

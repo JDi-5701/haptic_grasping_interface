@@ -30,14 +30,45 @@ TwoWire I2Cone = TwoWire(0);
 float target_angle = 5.0;
 long timestamp_us = _micros();
 
+float MotorTask::computeForceFeedback(float gripper_force) {
+    // --- 可调参数 ---
+    constexpr float FORCE_FEEDBACK_RATIO = 0.05f;
+    constexpr float FORCE_OFFSET = 1.0f;
+    constexpr float LOG_A = 2.085f;
+    constexpr float LOG_B = 1.0f;
+    constexpr float MAX_OUTPUT = 5.0f;
+    constexpr float DEADZONE = 0.1f;
+    constexpr float CLAMP_MIN = 0.0f;
+    constexpr float CLAMP_MAX = 5.0f;
+
+    // 1. 线性预处理
+    float force_input = FORCE_FEEDBACK_RATIO * (gripper_force + FORCE_OFFSET);
+    force_input = std::max(force_input, 0.0f);  // 忽略负值
+
+    // 2. 非线性对数映射
+    float force_human = LOG_A * logf(1.0f + LOG_B * force_input);
+
+    // 3. 死区
+    if (fabsf(force_human) < DEADZONE)
+        force_human = 0.0f;
+
+    // 4. 限幅
+    if (force_human > 0.0f)
+        force_human = std::min(CLAMP_MAX, std::max(CLAMP_MIN, force_human));
+    else
+        force_human = std::max(-CLAMP_MAX, std::min(-CLAMP_MIN, force_human));
+
+    // 5. 输出方向（必要时反向）
+    return force_human;
+}
+
 void MotorTask::run(){
 
     pinMode(13, OUTPUT); // Using pin 13 instead of 12 for ESP32 compatibility
     digitalWrite(13, LOW); // Explicitly set to LOW
 
     motor.controller = MotionControlType::torque;
-    motor.controller = MotionControlType::torque;
-motor.torque_controller = TorqueControlType::voltage;
+    motor.torque_controller = TorqueControlType::voltage;
 
     // motor setup
     driver.voltage_power_supply = 12;
@@ -57,7 +88,7 @@ motor.torque_controller = TorqueControlType::voltage;
     
     motor.init();
     motor.controller = MotionControlType::torque;
-motor.torque_controller = TorqueControlType::voltage;
+    motor.torque_controller = TorqueControlType::voltage;
     motor.initFOC();
 
     motor.controller = MotionControlType::torque;
@@ -77,6 +108,10 @@ motor.torque_controller = TorqueControlType::voltage;
     knob_state = 0;
     while (1)
     {
+        int32_t current_force_id = force_id;
+        uint64_t current_force_time = force_timestamp;
+        float current_force = tcp_force;
+
         motor.loopFOC();
 
         // print current position, after checking the sensor reading is work well
@@ -92,7 +127,9 @@ motor.torque_controller = TorqueControlType::voltage;
         } else {
             // Apply TCP force feedback
             //torque = motor.PID_velocity(-0.1 * tcp_force);
-            motor.move(-1 * tcp_force);
+            motor_command = computeForceFeedback(current_force);
+            motor.move(motor_command);
+
 
             /* Serial.print("tcp_force:");
             Serial.print(tcp_force);
@@ -106,6 +143,8 @@ motor.torque_controller = TorqueControlType::voltage;
         Serial.print("\t");  */
 
         motor_torque = motor.voltage.q;
+        motor_timestamp = (int64_t)(micros() - current_force_time);
+
         
         Serial.print("tcp_force: ");
         Serial.print(tcp_force);

@@ -15,6 +15,18 @@
 #include "task.h"
 #include "motor_task.h"
 
+#pragma pack(push, 1)
+struct MotorMsg {
+    int32_t id;
+    int32_t fsr_value;
+    float force_filtered;
+    uint64_t force_timestamp;
+    uint64_t motor_timestamp;
+    float motor_torque;
+    int32_t knob_state;
+};
+#pragma pack(pop)
+
 class WifiTask : public Task<WifiTask> {
     friend class Task<WifiTask>;
 
@@ -22,7 +34,7 @@ public:
     WifiTask(const uint8_t task_core, MotorTask& motor_task);
     virtual ~WifiTask();
 
-    void sendActualKnobState(int32_t position, float motor_torque);
+    void sendActualKnobState(const MotorMsg& msg);
 protected:
     void run();
 
@@ -32,5 +44,6 @@ private:
     
     void setupWiFi();
     void receiveUdpForce();
+
 };
     
