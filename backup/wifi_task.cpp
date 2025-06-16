@@ -12,7 +12,21 @@
 
 // WiFi
 
+struct FSRMsg {
+    int32_t fsr_value;
+    float force_filtered;
+    uint64_t timestamp;
+};
 
+struct MotorMsg {
+    int32_t fsr_value;
+    float force_filtered;
+    uint64_t force_timestamp;
+
+    uint64_t motor_timestamp;
+    float motor_torque;
+
+};
 // External
 // IPAddress ip(10, 0, 25, 243);
 // IPAddress server(10, 0, 25, 142);
@@ -69,6 +83,9 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
 }
 
 void WifiTask::sendActualKnobState(int32_t position, float motor_torque) {
+    MotorMsg msg;
+    msg.motor_timestamp = micros();
+
     if (udp.beginPacket(server, serverPort)) {
         Serial.printf("Sending position: %d\n", position);
         Serial.printf("Sending torque: %.2f\n", motor_torque);
@@ -85,14 +102,21 @@ void WifiTask::sendActualKnobState(int32_t position, float motor_torque) {
 
 void WifiTask::receiveUdpForce() {
     int packetSize = udp.parsePacket();
-    if (packetSize) {
-        Serial.printf("Received packet of size %d\n", packetSize);
-        float received_force;
-        udp.read((uint8_t*)&received_force, sizeof(received_force));
-        Serial.printf("Received Force: %.2f\n", received_force);
-        motor_task_.tcp_force = received_force;  // Update motor task directly
+    if (packetSize == sizeof(FSRMsg)) {
+        FSRMsg msg;
+        udp.read((uint8_t*)&msg, sizeof(msg));
+
+        Serial.printf("Received Force: %.2f N, Timestamp: %llu ms\n",
+                      msg.force_filtered, msg.timestamp);
+
+        motor_task_.tcp_force = msg.force_filtered;
+        motor_task_.force_timestamp = msg.timestamp;
+    } else if (packetSize > 0) {
+        Serial.printf("Warning: Received packet of unexpected size %d (expected %lu)\n",
+                      packetSize, sizeof(FSRMsg));
     }
 }
+
 
 void WifiTask::setupWiFi() {
     Serial.println("Starting WiFi setup...");

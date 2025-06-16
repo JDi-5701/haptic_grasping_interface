@@ -21,9 +21,11 @@ class MotorTask : public Task<MotorTask> {
         ~MotorTask();
         float tcp_force;
         int32_t knob_state;
+        uint64_t force_timestamp; // Timestamp of the last received force value
         float motor_torque = 0.0; // Current torque applied to the moto
 
-        void addListener(QueueHandle_t queue);
+        int torque_timestamp = 0.0; // Timestamp of the last torque value
+
     protected:
         void run();
 

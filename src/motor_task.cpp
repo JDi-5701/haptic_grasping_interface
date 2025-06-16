@@ -12,7 +12,7 @@
 // #### 
 // Hardware-specific motor calibration constants.
 // Run calibration once at startup, then update these constants with the calibration results.
-static const float ZERO_ELECTRICAL_OFFSET = 2.77;
+static const float ZERO_ELECTRICAL_OFFSET = 2.35;
 static const Direction FOC_DIRECTION = Direction::CW;
 static const int MOTOR_POLE_PAIRS = 11;
 // ####
@@ -35,53 +35,44 @@ void MotorTask::run(){
     pinMode(13, OUTPUT); // Using pin 13 instead of 12 for ESP32 compatibility
     digitalWrite(13, LOW); // Explicitly set to LOW
 
+    motor.controller = MotionControlType::torque;
+    motor.controller = MotionControlType::torque;
+motor.torque_controller = TorqueControlType::voltage;
+
     // motor setup
     driver.voltage_power_supply = 12;
     driver.init();
-
     motor.linkDriver(&driver);
 
     // Initialize the I2C bus
     I2Cone.setPins(4, 0);
     encoder.init(&I2Cone);
-
-    motor.voltage_limit = 12;
-    motor.velocity_limit = 10000;
     motor.linkSensor(&encoder);
 
-    motor.controller = MotionControlType::torque;
-
-    // velocity control loop setup
-    motor.PID_velocity.P = 1.4;    // Reduced from 1.0
-    motor.PID_velocity.I = 0.0;   // Added small I term
-    motor.PID_velocity.D = 0.0;    // Keep D at 0
-    motor.PID_velocity.output_ramp = 1000;  // Reduced from 10000
-    motor.PID_velocity.limit = 2;  // Keep same limit
+    motor.voltage_limit = 6;
+    motor.velocity_limit = 1000;
+    motor.pole_pairs = MOTOR_POLE_PAIRS;
 
     /* Calibration of motor and sensors*/
+    
     motor.init();
+    motor.controller = MotionControlType::torque;
+motor.torque_controller = TorqueControlType::voltage;
+    motor.initFOC();
+
+    motor.controller = MotionControlType::torque;
+    motor.torque_controller = TorqueControlType::voltage;
 
     encoder.update(); // here is from the future version of SimpleFOC
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    motor.pole_pairs = MOTOR_POLE_PAIRS;
-    motor.initFOC();
-    // motor.initFOC(ZERO_ELECTRICAL_OFFSET, FOC_DIRECTION); // the calibration routine is called inside the init function
-    // command.add('T', doTarget, "target velocity");
-    
     motor.monitor_downsample = 0; // disable monitor at first - optional
 
-
-    float current_detent_center = encoder.getAngle();
+    float initial_poistion = encoder.getAngle();
 
     uint32_t last_publish = 0;
 
-    // PB_SmartKnobConfig latest_config = config;
-
-    // UART setup
-    // Serial.begin(115200);
     Serial.println("Motor ready!");
-    // Serial.println("Set target velocity [rad/s]");
     tcp_force = 0.0;
     knob_state = 0;
     while (1)
@@ -91,26 +82,17 @@ void MotorTask::run(){
         // print current position, after checking the sensor reading is work well
     
         char str_angle[100];
-        float encoder_angle = encoder.getAngle();
-        float motor_angle = motor.shaft_angle;
-        float angle_difference = motor_angle - encoder_angle;
-       
-        /* Serial.print("Encoder: ");
-        Serial.print(encoder_angle, 4);
-        Serial.print(", Motor: ");
-        Serial.print(motor_angle, 4);
-        Serial.print(", Diff: ");
-        Serial.println(angle_difference, 4); */
+        float encoder_angle = encoder.getAngle();    
 
-        float angle_to_detent_center = encoder.getAngle() - current_detent_center;
+        float angle_to_detent_center = encoder.getAngle() - initial_poistion;
 
         float torque = 0;
-        if (fabsf(motor.shaft_velocity) > 60) {
+        if (fabsf(motor.shaft_velocity) > 600) {
             motor.move(0);
         } else {
             // Apply TCP force feedback
-            torque = motor.PID_velocity(-0.1 * tcp_force);
-            motor.move(torque);
+            //torque = motor.PID_velocity(-0.1 * tcp_force);
+            motor.move(-1 * tcp_force);
 
             /* Serial.print("tcp_force:");
             Serial.print(tcp_force);
@@ -118,10 +100,23 @@ void MotorTask::run(){
         }
 
 
-        knob_state = int32_t(100 * angle_to_detent_center);
+        knob_state = int32_t(1000 * angle_to_detent_center);
         /* Serial.print("motor task knob state:");
         Serial.print(knob_state);
         Serial.print("\t");  */
+
+        motor_torque = motor.voltage.q;
+        
+        Serial.print("tcp_force: ");
+        Serial.print(tcp_force);
+        Serial.print("Applied voltage (V): ");
+        Serial.println(motor.voltage.q);
+
+        Serial.print("Controller type: ");
+        Serial.println((int)motor.controller);
+
+        Serial.print("Torque controller type: ");
+        Serial.println((int)motor.torque_controller);
 
         motor.monitor();
         
