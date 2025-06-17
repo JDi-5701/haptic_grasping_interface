@@ -81,29 +81,45 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
 }
 
 void WifiTask::sendActualKnobState(const MotorMsg& msg) {
-    if (udp.beginPacket(server, serverPort)) {
-        Serial.printf(
-            "MotorMsg {\n"
-            "  id: %d\n"
-            "  fsr_value: %d\n"
-            "  force_filtered: %.2f N\n"
-            "  force_timestamp: %llu µs\n"
-            "  motor_timestamp: %llu µs\n"
-            "  motor_torque: %.2f V\n"
-            "  knob_state: %d\n"
-            "}\n",
-            (int)msg.id,
-            (int)msg.fsr_value,
-            msg.force_filtered,
-            (unsigned long long)msg.force_timestamp,
-            (unsigned long long)msg.motor_timestamp,
-            msg.motor_torque,
-            (int)msg.knob_state
-        );
 
-        Serial.printf("sizeof(MotorMsg): %d\n", sizeof(MotorMsg));
+    
+bool ok = udp.beginPacket(server, serverPort);
+
+udp.write((uint8_t*)&msg, sizeof(msg));
+
+udp.endPacket();
+
+
+    uint64_t t0 = micros();
+    uint64_t t1 =micros();
+    uint64_t t2 =micros();
+    if (udp.beginPacket(server, serverPort)) {
+        t1 = micros();
+
+        // Serial.printf(
+        //     "MotorMsg {\n"
+        //     "  id: %d\n"
+        //     "  fsr_value: %d\n"
+        //     "  force_filtered: %.2f N\n"
+        //     "  force_timestamp: %llu µs\n"
+        //     "  motor_timestamp: %llu µs\n"
+        //     "  motor_torque: %.2f V\n"
+        //     "  knob_state: %d\n"
+        //     "}\n",
+        //     (int)msg.id,
+        //     (int)msg.fsr_value,
+        //     msg.force_filtered,
+        //     (unsigned long long)msg.force_timestamp,
+        //     (unsigned long long)msg.motor_timestamp,
+        //     msg.motor_torque,
+        //     (int)msg.knob_state
+        // );
+
+        //Serial.printf("sizeof(MotorMsg): %d\n", sizeof(MotorMsg));
 
         udp.write((uint8_t*)&msg, sizeof(msg));
+
+        t2 = micros();
 
         if (!udp.endPacket()) {
             Serial.println("Failed to send UDP packet");
@@ -111,13 +127,23 @@ void WifiTask::sendActualKnobState(const MotorMsg& msg) {
     } else {
         Serial.println("Failed to begin UDP packet");
     }
+
+    uint64_t t3 = micros();
+    //Serial.printf("[UDP Send] begin: %llu µs | write: %llu µs | end: %llu µs | total: %llu µs\n",
+              //t1 - t0, t2 - t1, t3 - t2, t3 - t0);
 }
 
 void WifiTask::receiveUdpForce() {
+    uint64_t t0 = micros();
+    uint64_t t1 =micros();
+    uint64_t t2 =micros();
+
     int packetSize = udp.parsePacket();
+    t1 =micros();
     if (packetSize == sizeof(FSRMsg)) {
         FSRMsg msg;
         udp.read((uint8_t*)&msg, sizeof(msg));
+        t2 =micros();
 
         if (!time_synced) {
             esp1_sync_micros = msg.timestamp;
@@ -132,9 +158,9 @@ void WifiTask::receiveUdpForce() {
         // 使用同步点换算为 ESP2 上的时间戳
         uint64_t corrected_time = esp2_sync_micros + (msg.timestamp - esp1_sync_micros);
 
-        Serial.printf("Received force id:%d, FSR: %d, Force: %.2f N\n", msg.id, msg.fsr_value, msg.force_filtered);
-        Serial.printf("Original Force Time: %llu µs → Corrected (ESP2): %llu µs\n",
-                      (unsigned long long)msg.timestamp, (unsigned long long)corrected_time);
+        //Serial.printf("Received force id:%d, FSR: %d, Force: %.2f N\n", msg.id, msg.fsr_value, msg.force_filtered);
+        //Serial.printf("Original Force Time: %llu µs → Corrected (ESP2): %llu µs\n",
+                      //(unsigned long long)msg.timestamp, (unsigned long long)corrected_time);
 
         motor_task_.tcp_force = msg.force_filtered;
         motor_task_.force_timestamp = corrected_time;
@@ -145,6 +171,10 @@ void WifiTask::receiveUdpForce() {
         Serial.printf("Warning: Received packet of unexpected size %d (expected %lu)\n",
                       packetSize, sizeof(FSRMsg));
     }
+
+    uint64_t t3 =micros();
+    //Serial.printf("[UDP receive] parse: %llu µs | read: %llu µs | end: %llu µs | total: %llu µs\n",
+              //t1 - t0, t2 - t1, t3 - t2, t3 - t0);
 }
 
 
@@ -194,7 +224,7 @@ void WifiTask::run() {
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        
+    
         // Send current knob state from motor task
         MotorMsg msg;
         msg.id = motor_task_.force_id; // Current force ID
@@ -205,13 +235,33 @@ void WifiTask::run() {
         msg.motor_torque = motor_task_.motor_torque;
         msg.knob_state = motor_task_.knob_state;  // Current knob state
 
+        static int cycle_count = 0;
+
+        uint64_t t0 = micros();
         sendActualKnobState(msg);
         
+        uint64_t t1 = micros();
         // Check for incoming force messages
         receiveUdpForce();
-        
+        uint64_t t2 = micros();
+
         // Small delay between messages
         vTaskDelay(pdMS_TO_TICKS(10));  // 100ms delay
+
+        uint64_t t3 = micros();
+
+        cycle_count++;
+
+        if (cycle_count >= 100) {
+            Serial.printf("[Wifi Task] Send: %llu µs | Receive: %llu µs | Total: %llu µs\n",
+                    (unsigned long long)(t1 - t0),
+                    (unsigned long long)(t2 - t1),
+                    (unsigned long long)(t3 - t0));
+            Serial.printf("[WifiTask] Running on core: %d\n", xPortGetCoreID());
+
+            cycle_count = 0;
+        }
+        
     }
 }
 

@@ -14,7 +14,6 @@
 
 static MotorTask motor_task(0);
 static WifiTask wifi_task(0, motor_task);
-// static InterfaceTask interface_task(0, motor_task, wifi_task);
 
 void setup() {
     // Initialize serial communication

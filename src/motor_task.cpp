@@ -32,14 +32,14 @@ long timestamp_us = _micros();
 
 float MotorTask::computeForceFeedback(float gripper_force) {
     // --- 可调参数 ---
-    constexpr float FORCE_FEEDBACK_RATIO = 0.05f;
-    constexpr float FORCE_OFFSET = 1.0f;
+    constexpr float FORCE_FEEDBACK_RATIO = 0.1f;
+    constexpr float FORCE_OFFSET = 0.5f;
     constexpr float LOG_A = 2.085f;
     constexpr float LOG_B = 1.0f;
     constexpr float MAX_OUTPUT = 5.0f;
     constexpr float DEADZONE = 0.1f;
     constexpr float CLAMP_MIN = 0.0f;
-    constexpr float CLAMP_MAX = 5.0f;
+    constexpr float CLAMP_MAX = 1.0f;
 
     // 1. 线性预处理
     float force_input = FORCE_FEEDBACK_RATIO * (gripper_force + FORCE_OFFSET);
@@ -106,8 +106,11 @@ void MotorTask::run(){
     Serial.println("Motor ready!");
     tcp_force = 0.0;
     knob_state = 0;
+
+    uint64_t last_cycle_start = micros();
     while (1)
     {
+
         int32_t current_force_id = force_id;
         uint64_t current_force_time = force_timestamp;
         float current_force = tcp_force;
@@ -128,12 +131,14 @@ void MotorTask::run(){
             // Apply TCP force feedback
             //torque = motor.PID_velocity(-0.1 * tcp_force);
             motor_command = computeForceFeedback(current_force);
+
+            // Serial.print("tcp_force: ");
+            // Serial.print(tcp_force);
+            // Serial.print("motor_command: ");
+            // Serial.print(motor_command);
+
             motor.move(motor_command);
 
-
-            /* Serial.print("tcp_force:");
-            Serial.print(tcp_force);
-            Serial.print("\t"); */
         }
 
 
@@ -143,22 +148,49 @@ void MotorTask::run(){
         Serial.print("\t");  */
 
         motor_torque = motor.voltage.q;
-        motor_timestamp = (int64_t)(micros() - current_force_time);
 
         
-        Serial.print("tcp_force: ");
-        Serial.print(tcp_force);
-        Serial.print("Applied voltage (V): ");
-        Serial.println(motor.voltage.q);
+        // Serial.print("tcp_force: ");
+        // Serial.print(tcp_force);
+        // Serial.print("Applied voltage (V): ");
+        // Serial.println(motor.voltage.q);
 
-        Serial.print("Controller type: ");
-        Serial.println((int)motor.controller);
+        // Serial.print("Controller type: ");
+        // Serial.println((int)motor.controller);
 
-        Serial.print("Torque controller type: ");
-        Serial.println((int)motor.torque_controller);
+        // Serial.print("Torque controller type: ");
+        // Serial.println((int)motor.torque_controller);
 
         motor.monitor();
         
         vTaskDelay(pdMS_TO_TICKS(1));
+
+
+        uint64_t now = micros();
+        uint64_t cycle_time = now - last_cycle_start;
+        last_cycle_start = now;
+
+        static uint64_t cycle_sum = 0;
+        static uint64_t cycle_max = 0;
+        static int cycle_count = 0;
+
+        cycle_sum += cycle_time;
+        if (cycle_time > cycle_max) {
+            cycle_max = cycle_time;
+        }
+        cycle_count++;
+
+        if (cycle_count >= 400) {
+            uint64_t cycle_avg = cycle_sum / cycle_count;
+            Serial.printf("[Motor Task Cycle] avg: %llu µs | max: %llu µs\n",
+                        (unsigned long long)cycle_avg,
+                        (unsigned long long)cycle_max);
+            // reset
+            cycle_sum = 0;
+            cycle_max = 0;
+            cycle_count = 0;
+            Serial.printf("[MotorTask] Running on core: %d\n", xPortGetCoreID());
+        }
+
     }
 }

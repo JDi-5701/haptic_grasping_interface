@@ -34,7 +34,7 @@ class MotorTask : public Task<MotorTask> {
     private:
 
         // BLDC motor & driver instance
-        BLDCMotor motor = BLDCMotor(11, 8.8); // Motor pairs, phase resistance
+        BLDCMotor motor = BLDCMotor(11, 6.5); // Motor pairs, phase resistance
         // BLDCDriver6PWM driver = BLDCDriver6PWM(PIN_UH, PIN_UL, PIN_VH, PIN_VL, PIN_WH, PIN_WL);
         BLDCDriver3PWM driver = BLDCDriver3PWM(32, 33, 25, 26); // PWM1, PWM2, PWM3, EN (using pin 22 which supports output)
         //BLDCDriver3PWM driver = BLDCDriver3PWM(26, 27, 14, 12);
