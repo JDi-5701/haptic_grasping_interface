@@ -27,20 +27,98 @@ MotorTask::~MotorTask() {}
 MagneticSensorI2C encoder = MagneticSensorI2C(AS5600_I2C);
 TwoWire I2Cone = TwoWire(0);
 
-float target_angle = 5.0;
-long timestamp_us = _micros();
+// Merkel mechanism state
+bool merkel_active = false;
+uint64_t merkel_start_time = 0;
+constexpr float MERKEL_TRIGGER_THRESHOLD = 2.0f;
+constexpr float MERKEL_FORCE_N = 6.0f;
+constexpr uint64_t MERKEL_DURATION_US = 500000; // 0.5 seconds
+float merkel_delta = 1.0f;  // to be initialized in run()
+
+bool isInContact(float current_force) {
+    static bool IN_CONTACT = false;
+    // 判断是否接触
+    static float prev_force = 0.0f;
+    
+    if (prev_force <= MERKEL_TRIGGER_THRESHOLD &&
+        current_force > MERKEL_TRIGGER_THRESHOLD) {
+            IN_CONTACT = true;
+    } else if (current_force < MERKEL_TRIGGER_THRESHOLD) {
+        IN_CONTACT = false;
+        }
+    
+    prev_force = current_force;
+
+    return IN_CONTACT;
+}
+
+float applyMerkelMechanism(float current_force) {
+    static bool merkel_active = false;
+    static uint64_t merkel_start_time = 0;
+    uint64_t now_us = micros();
+
+    // 在外部触发时调用此函数才算激活，内部只计时
+    if (!merkel_active) {
+        merkel_active = true;
+        merkel_start_time = now_us;
+    }
+
+    if (now_us - merkel_start_time <= MERKEL_DURATION_US) {
+        return merkel_delta;
+    } else {
+        merkel_active = false;
+        return 0.0;
+    }
+}
+
+float applyPacinianMechanism(float current_force) {
+    uint64_t now_us = micros();
+    // 参数设定
+    constexpr float PACINIAN_FREQ = 40.0f;        // 固定频率 (Hz)
+    constexpr float AMPLITUDE = 2.0f;          // 最大振幅
+
+    static uint64_t pacinian_start_time = 0;
+
+    if (pacinian_start_time == 0) {
+        pacinian_start_time = now_us;
+    }
+
+    float t = (now_us - pacinian_start_time) / 1e6f; // 秒
+    float pacinian_force = AMPLITUDE * sinf(2.0f * PI * PACINIAN_FREQ * t);
+
+    return pacinian_force;
+}
+
 
 float MotorTask::computeForceFeedback(float gripper_force) {
     // --- 可调参数 ---
     constexpr float FORCE_FEEDBACK_RATIO = 0.1f;
     constexpr float FORCE_OFFSET = 0.2f;
     constexpr float LOG_A = 0.3f;
-    constexpr float LOG_B = 10.0f;
+    constexpr float LOG_B = 5.0f;
     constexpr float CLAMP_MIN = 0.0f;
-    constexpr float CLAMP_MAX = 1.4f;
+    constexpr float CLAMP_MAX = 2.0f;
+    static bool IN_CONTACT = false;
+
+    float merkel_force;
+    float pacinian_force;
+    float gripper_force_with_merkel_with_pacinian;
+
+    IN_CONTACT = isInContact(gripper_force);
+    if (IN_CONTACT) {
+        // 如果接触，应用 Merkel 和 Pacinian 机制
+        merkel_force = applyMerkelMechanism(gripper_force);
+        pacinian_force = applyPacinianMechanism(gripper_force);
+    } else {
+        // 如果没有接触，直接返回原始力
+        merkel_force = 0.0f;
+        pacinian_force = 0.0f;
+    }
+
+    gripper_force_with_merkel_with_pacinian = gripper_force + merkel_force + pacinian_force;
 
     // 1. 线性预处理
-    float force_input = FORCE_FEEDBACK_RATIO * (gripper_force + FORCE_OFFSET);
+    float force_input = FORCE_FEEDBACK_RATIO * (gripper_force_with_merkel_with_pacinian + FORCE_OFFSET);
     force_input = std::max(force_input, 0.0f);  // 忽略负值
 
     // 2. 非线性对数映射
@@ -74,7 +152,7 @@ void MotorTask::run(){
     encoder.init(&I2Cone);
     motor.linkSensor(&encoder);
 
-    motor.voltage_limit = 6;
+    motor.voltage_limit = 8;
     motor.velocity_limit = 1000;
     motor.pole_pairs = MOTOR_POLE_PAIRS;
 
@@ -90,8 +168,6 @@ void MotorTask::run(){
 
     encoder.update(); // here is from the future version of SimpleFOC
     vTaskDelay(pdMS_TO_TICKS(10));
-
-    motor.monitor_downsample = 0; // disable monitor at first - optional
 
     float initial_poistion = encoder.getAngle();
 
