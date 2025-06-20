@@ -33,13 +33,11 @@ long timestamp_us = _micros();
 float MotorTask::computeForceFeedback(float gripper_force) {
     // --- 可调参数 ---
     constexpr float FORCE_FEEDBACK_RATIO = 0.1f;
-    constexpr float FORCE_OFFSET = 0.5f;
-    constexpr float LOG_A = 2.085f;
-    constexpr float LOG_B = 1.0f;
-    constexpr float MAX_OUTPUT = 5.0f;
-    constexpr float DEADZONE = 0.1f;
+    constexpr float FORCE_OFFSET = 0.2f;
+    constexpr float LOG_A = 0.3f;
+    constexpr float LOG_B = 10.0f;
     constexpr float CLAMP_MIN = 0.0f;
-    constexpr float CLAMP_MAX = 1.0f;
+    constexpr float CLAMP_MAX = 1.4f;
 
     // 1. 线性预处理
     float force_input = FORCE_FEEDBACK_RATIO * (gripper_force + FORCE_OFFSET);
@@ -47,10 +45,6 @@ float MotorTask::computeForceFeedback(float gripper_force) {
 
     // 2. 非线性对数映射
     float force_human = LOG_A * logf(1.0f + LOG_B * force_input);
-
-    // 3. 死区
-    if (fabsf(force_human) < DEADZONE)
-        force_human = 0.0f;
 
     // 4. 限幅
     if (force_human > 0.0f)
@@ -76,7 +70,7 @@ void MotorTask::run(){
     motor.linkDriver(&driver);
 
     // Initialize the I2C bus
-    I2Cone.setPins(4, 0);
+    I2Cone.setPins(21, 22);
     encoder.init(&I2Cone);
     motor.linkSensor(&encoder);
 
@@ -137,7 +131,7 @@ void MotorTask::run(){
             // Serial.print("motor_command: ");
             // Serial.print(motor_command);
 
-            motor.move(motor_command);
+            motor.move(-1.0 * motor_command);
 
         }
 
