@@ -30,7 +30,7 @@ TwoWire I2Cone = TwoWire(0);
 // Merkel mechanism state
 bool merkel_active = false;
 uint64_t merkel_start_time = 0;
-constexpr float MERKEL_TRIGGER_THRESHOLD = 2.0f;
+constexpr float MERKEL_TRIGGER_THRESHOLD = 1.0f;
 constexpr float MERKEL_FORCE_N = 6.0f;
 constexpr uint64_t MERKEL_DURATION_US = 500000; // 0.5 seconds
 float merkel_delta = 1.0f;  // to be initialized in run()
@@ -71,11 +71,12 @@ float applyMerkelMechanism(float current_force) {
     }
 }
 
-float applyPacinianMechanism(float current_force) {
+float applyPacinianMechanism(float gripper_force) {
     uint64_t now_us = micros();
     // 参数设定
-    constexpr float PACINIAN_FREQ = 40.0f;        // 固定频率 (Hz)
-    constexpr float AMPLITUDE = 2.0f;          // 最大振幅
+    constexpr float PACINIAN_FREQ = 150.0f;        // 固定频率 (Hz)
+    constexpr float DEFARULT_AMPLITUDE = 0.1f;          // 最大振幅
+    constexpr float AMPLITUDE_FORCE_RATIO= 0.1f;
 
     static uint64_t pacinian_start_time = 0;
 
@@ -84,7 +85,7 @@ float applyPacinianMechanism(float current_force) {
     }
 
     float t = (now_us - pacinian_start_time) / 1e6f; // 秒
-    float pacinian_force = AMPLITUDE * sinf(2.0f * PI * PACINIAN_FREQ * t);
+    float pacinian_force = (DEFARULT_AMPLITUDE + AMPLITUDE_FORCE_RATIO *gripper_force ) * sinf(2.0f * PI * PACINIAN_FREQ * t);
 
     return pacinian_force;
 }
@@ -94,10 +95,10 @@ float MotorTask::computeForceFeedback(float gripper_force) {
     // --- 可调参数 ---
     constexpr float FORCE_FEEDBACK_RATIO = 0.1f;
     constexpr float FORCE_OFFSET = 0.2f;
-    constexpr float LOG_A = 0.3f;
-    constexpr float LOG_B = 5.0f;
+    constexpr float LOG_A = 1.0f;
+    constexpr float LOG_B = 0.6f;
     constexpr float CLAMP_MIN = 0.0f;
-    constexpr float CLAMP_MAX = 2.0f;
+    constexpr float CLAMP_MAX = 1.0f;
     static bool IN_CONTACT = false;
 
     float merkel_force;
@@ -107,7 +108,8 @@ float MotorTask::computeForceFeedback(float gripper_force) {
     IN_CONTACT = isInContact(gripper_force);
     if (IN_CONTACT) {
         // 如果接触，应用 Merkel 和 Pacinian 机制
-        merkel_force = applyMerkelMechanism(gripper_force);
+        //merkel_force = applyMerkelMechanism(gripper_force);
+        merkel_force = 0.0f;
         pacinian_force = applyPacinianMechanism(gripper_force);
     } else {
         // 如果没有接触，直接返回原始力
@@ -152,7 +154,7 @@ void MotorTask::run(){
     encoder.init(&I2Cone);
     motor.linkSensor(&encoder);
 
-    motor.voltage_limit = 8;
+    motor.voltage_limit = 6;
     motor.velocity_limit = 1000;
     motor.pole_pairs = MOTOR_POLE_PAIRS;
 
@@ -170,8 +172,6 @@ void MotorTask::run(){
     vTaskDelay(pdMS_TO_TICKS(10));
 
     float initial_poistion = encoder.getAngle();
-
-    uint32_t last_publish = 0;
 
     Serial.println("Motor ready!");
     tcp_force = 0.0;
@@ -207,7 +207,7 @@ void MotorTask::run(){
             // Serial.print("motor_command: ");
             // Serial.print(motor_command);
 
-            motor.move(-1.0 * motor_command);
+            motor.move(motor_command);
 
         }
 
