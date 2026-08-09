@@ -35,15 +35,13 @@ bool time_synced = false;
 
 // cobot 
 IPAddress ip(10, 200, 2, 148);
-IPAddress server(10, 200, 2, 102);
+IPAddress server(10, 200, 2, 81);
 uint16_t serverPort = 5001;
 uint16_t localPort = 5000;  // Local port to receive UDP messages
 IPAddress gateway(10, 200, 2, 1);     // Replace with your actual gateway
 IPAddress subnet(255, 255, 255, 0);   // Typical subnet
-const char*  ssid = "acra4dt-wifi";
-const char*  password = "PaulanerSpezi";
-/* const char*  ssid = "cobot-t2-wifi";
-const char*  password = "PaulanerSpezi"; */
+const char*  ssid = "cobot-t2-wifi";
+const char*  password = "fortiss123!!!";
 
 /* IPAddress ip(192, 168, 3, 101);
 IPAddress server(192, 168, 3, 71);
