@@ -79,15 +79,6 @@ WifiTask::WifiTask(const uint8_t task_core, MotorTask& motor_task)
 }
 
 void WifiTask::sendActualKnobState(const MotorMsg& msg) {
-
-    
-bool ok = udp.beginPacket(server, serverPort);
-
-udp.write((uint8_t*)&msg, sizeof(msg));
-
-udp.endPacket();
-
-
     uint64_t t0 = micros();
     uint64_t t1 =micros();
     uint64_t t2 =micros();
@@ -97,18 +88,10 @@ udp.endPacket();
         // Serial.printf(
         //     "MotorMsg {\n"
         //     "  id: %d\n"
-        //     "  fsr_value: %d\n"
-        //     "  force_filtered: %.2f N\n"
-        //     "  force_timestamp: %llu µs\n"
-        //     "  motor_timestamp: %llu µs\n"
         //     "  motor_torque: %.2f V\n"
         //     "  knob_state: %d\n"
         //     "}\n",
         //     (int)msg.id,
-        //     (int)msg.fsr_value,
-        //     msg.force_filtered,
-        //     (unsigned long long)msg.force_timestamp,
-        //     (unsigned long long)msg.motor_timestamp,
         //     msg.motor_torque,
         //     (int)msg.knob_state
         // );
@@ -165,9 +148,21 @@ void WifiTask::receiveUdpForce() {
         motor_task_.fsr_value = msg.fsr_value;
         motor_task_.force_id = msg.id; 
 
+    } else if (packetSize == sizeof(ForceMsg3D)) {
+        // 3D 力指令: X/Y 驱动 2D 线圈, Z 驱动旋钮力反馈 (纯新增)
+        ForceMsg3D msg;
+        udp.read((uint8_t*)&msg, sizeof(msg));
+        t2 = micros();
+
+        motor_task_.coil_force_x = msg.force_x;
+        motor_task_.coil_force_y = msg.force_y;
+        motor_task_.tcp_force = msg.force_z;
+        motor_task_.force_timestamp = micros();
+        motor_task_.coil_timestamp = micros();
+
     } else if (packetSize > 0) {
-        Serial.printf("Warning: Received packet of unexpected size %d (expected %lu)\n",
-                      packetSize, sizeof(FSRMsg));
+        Serial.printf("Warning: Received packet of unexpected size %d (expected %lu or %lu)\n",
+                      packetSize, sizeof(FSRMsg), sizeof(ForceMsg3D));
     }
 
     uint64_t t3 =micros();
@@ -224,14 +219,11 @@ void WifiTask::run() {
         }
     
         // Send current knob state from motor task
+        static int32_t msg_counter = 0;
         MotorMsg msg;
-        msg.id = motor_task_.force_id; // Current force ID
-        msg.fsr_value = motor_task_.fsr_value;                 // 如果你还保留
-        msg.force_filtered = motor_task_.tcp_force;
-        msg.force_timestamp = motor_task_.force_timestamp;
-        msg.motor_timestamp = motor_task_.motor_timestamp;
-        msg.motor_torque = motor_task_.motor_torque;
-        msg.knob_state = motor_task_.knob_state;  // Current knob state
+        msg.id = ++msg_counter;                       // 包序号
+        msg.motor_torque = motor_task_.motor_torque;  // 当前 q 轴电压
+        msg.knob_state = motor_task_.knob_state;      // 旋钮位置(毫弧度)
 
         static int cycle_count = 0;
 

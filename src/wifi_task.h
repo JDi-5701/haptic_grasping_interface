@@ -16,16 +16,22 @@
 #include "motor_task.h"
 
 #pragma pack(push, 1)
+// 回传状态包 (12 字节): id=包序号, motor_torque=q轴电压(V), knob_state=旋钮位置(毫弧度)
 struct MotorMsg {
     int32_t id;
-    int32_t fsr_value;
-    float force_filtered;
-    uint64_t force_timestamp;
-    uint64_t motor_timestamp;
     float motor_torque;
     int32_t knob_state;
 };
 #pragma pack(pop)
+
+// 3D 力指令 (来自 PC/ROS 驱动, 12 字节):
+//   force_x / force_y -> 2D 电磁线圈
+//   force_z           -> 旋钮力反馈 (对应原来的 1D 力)
+struct ForceMsg3D {
+    float force_x;
+    float force_y;
+    float force_z;
+};
 
 class WifiTask : public Task<WifiTask> {
     friend class Task<WifiTask>;

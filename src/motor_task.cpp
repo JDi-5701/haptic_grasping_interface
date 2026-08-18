@@ -136,10 +136,56 @@ float MotorTask::computeForceFeedback(float gripper_force) {
     return force_human;
 }
 
+// #### 2D 线圈控制实现 (集成自 coil_code/coil_udp, 纯新增) ####
+void MotorTask::setupCoilHardware() {
+    ledcSetup(CH_X_FWD, COIL_PWM_CARRIER_HZ, COIL_PWM_RES_BITS);
+    ledcSetup(CH_X_REV, COIL_PWM_CARRIER_HZ, COIL_PWM_RES_BITS);
+    ledcSetup(CH_Y_FWD, COIL_PWM_CARRIER_HZ, COIL_PWM_RES_BITS);
+    ledcSetup(CH_Y_REV, COIL_PWM_CARRIER_HZ, COIL_PWM_RES_BITS);
+
+    ledcAttachPin(PIN_COIL_X_FWD, CH_X_FWD);
+    ledcAttachPin(PIN_COIL_X_REV, CH_X_REV);
+    ledcAttachPin(PIN_COIL_Y_FWD, CH_Y_FWD);
+    ledcAttachPin(PIN_COIL_Y_REV, CH_Y_REV);
+
+    // 初始关闭全部通道
+    ledcWrite(CH_X_FWD, 0);
+    ledcWrite(CH_X_REV, 0);
+    ledcWrite(CH_Y_FWD, 0);
+    ledcWrite(CH_Y_REV, 0);
+}
+
+// 将 -1.0 ~ 1.0 的力转换为 PWM 计数
+uint32_t MotorTask::forceToCounts(float force_val) {
+    float magnitude = fabsf(force_val);
+    if (magnitude > 1.0f) magnitude = 1.0f; // 限幅
+    uint32_t max_counts = (1UL << COIL_PWM_RES_BITS) - 1;
+    return (uint32_t)(magnitude * max_counts);
+}
+
+// H 桥控制逻辑: 正/反向只开一路, 死区 ±0.001
+void MotorTask::applyCoilControl(int ch_fwd, int ch_rev, float force) {
+    uint32_t duty = forceToCounts(force);
+
+    if (force > 0.001f) {
+        ledcWrite(ch_rev, 0);
+        ledcWrite(ch_fwd, duty);
+    } else if (force < -0.001f) {
+        ledcWrite(ch_fwd, 0);
+        ledcWrite(ch_rev, duty);
+    } else {
+        ledcWrite(ch_fwd, 0);
+        ledcWrite(ch_rev, 0);
+    }
+}
+
 void MotorTask::run(){
 
     pinMode(13, OUTPUT); // Using pin 13 instead of 12 for ESP32 compatibility
     digitalWrite(13, LOW); // Explicitly set to LOW
+
+    // 2D 线圈硬件初始化 (LEDC PWM, 纯新增)
+    setupCoilHardware();
 
     motor.controller = MotionControlType::torque;
     motor.torque_controller = TorqueControlType::voltage;
@@ -218,6 +264,14 @@ void MotorTask::run(){
         Serial.print("\t");  */
 
         motor_torque = motor.voltage.q;
+
+        // --- 2D 线圈控制: 500ms 无新指令自动断电 (安全看门狗, 纯新增) ---
+        if (micros() - coil_timestamp > 500000) {
+            coil_force_x = 0.0f;
+            coil_force_y = 0.0f;
+        }
+        applyCoilControl(CH_X_FWD, CH_X_REV, coil_force_x);
+        applyCoilControl(CH_Y_FWD, CH_Y_REV, coil_force_y);
 
         
         // Serial.print("tcp_force: ");
