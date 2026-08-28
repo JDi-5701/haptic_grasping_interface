@@ -93,12 +93,9 @@ float applyPacinianMechanism(float gripper_force) {
 
 float MotorTask::computeForceFeedback(float gripper_force) {
     // --- 可调参数 ---
-    constexpr float FORCE_FEEDBACK_RATIO = 0.1f;
-    constexpr float FORCE_OFFSET = 0.2f;
-    constexpr float LOG_A = 1.0f;
-    constexpr float LOG_B = 0.6f;
-    constexpr float CLAMP_MIN = 0.0f;
-    constexpr float CLAMP_MAX = 1.0f;
+    constexpr float MAX_LINEAR_BASE   = 0.20f;  // 0N 时的起始出力
+    constexpr float MAX_LINEAR_SLOPE  = 0.04f;  // 每牛顿的增量 (raw 在 20N 到 1.0)
+    constexpr float CURRENT_LIMIT_A   = 0.53f;  // 额定连续电流上限 (A), 对应扭矩 0.11 N·m
     static bool IN_CONTACT = false;
 
     float merkel_force;
@@ -119,20 +116,13 @@ float MotorTask::computeForceFeedback(float gripper_force) {
 
     gripper_force_with_merkel_with_pacinian = gripper_force + merkel_force + pacinian_force;
 
-    // 1. 线性预处理
-    float force_input = FORCE_FEEDBACK_RATIO * (gripper_force_with_merkel_with_pacinian + FORCE_OFFSET);
-    force_input = std::max(force_input, 0.0f);  // 忽略负值
+    // 线性映射: 0-20N 线性到全量程, 20N 封顶; 再乘 0.53 (= 额定连续电流 0.53A)
+    //   raw = 0.2 + 0.04 * F  (F in N),  clamp to [0,1],  输出 = 0.53 * clamp
+    float F = gripper_force_with_merkel_with_pacinian;
+    float raw = MAX_LINEAR_BASE + MAX_LINEAR_SLOPE * F;  // 0.2 + 0.04*F
+    float clamped = std::min(std::max(raw, 0.0f), 1.0f); // 钳到 [0,1]
+    float force_human = CURRENT_LIMIT_A * clamped;        // 0.53A 上限
 
-    // 2. 非线性对数映射
-    float force_human = LOG_A * logf(1.0f + LOG_B * force_input);
-
-    // 4. 限幅
-    if (force_human > 0.0f)
-        force_human = std::min(CLAMP_MAX, std::max(CLAMP_MIN, force_human));
-    else
-        force_human = std::max(-CLAMP_MAX, std::min(-CLAMP_MIN, force_human));
-
-    // 5. 输出方向（必要时反向）
     return force_human;
 }
 
@@ -196,7 +186,8 @@ void MotorTask::run(){
     motor.linkDriver(&driver);
 
     // Initialize the I2C bus
-    I2Cone.setPins(21, 22);
+    // I2Cone.setPins(21, 22);
+    I2Cone.setPins(19, 18);
     encoder.init(&I2Cone);
     motor.linkSensor(&encoder);
 

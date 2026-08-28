@@ -15,8 +15,10 @@
 
 // #### 2D 电磁线圈配置 (集成自 coil_code/coil_udp) ####
 // 线圈工程 X 轴原用 GPIO 25/26, 与本工程 BLDC 驱动 (32, 33, 25, 26) 冲突, 故 X 轴改用 16/17
-#define PIN_COIL_X_FWD 16
-#define PIN_COIL_X_REV 17
+//#define PIN_COIL_X_FWD 16
+//#define PIN_COIL_X_REV 17
+#define PIN_COIL_X_FWD 4
+#define PIN_COIL_X_REV 23
 #define PIN_COIL_Y_FWD 14
 #define PIN_COIL_Y_REV 27
 
@@ -50,7 +52,7 @@ class MotorTask : public Task<MotorTask> {
     private:
 
         // BLDC motor & driver instance
-        BLDCMotor motor = BLDCMotor(11, 8.8); // Motor pairs, phase resistance
+        BLDCMotor motor = BLDCMotor(11, 4.4); // Motor pairs, phase resistance (line-to-neutral = 8.8Ω phase-to-phase / 2)
         // BLDCDriver6PWM driver = BLDCDriver6PWM(PIN_UH, PIN_UL, PIN_VH, PIN_VL, PIN_WH, PIN_WL);
         BLDCDriver3PWM driver = BLDCDriver3PWM(32, 33, 25, 26); // PWM1, PWM2, PWM3, EN (using pin 22 which supports output)
         //BLDCDriver3PWM driver = BLDCDriver3PWM(26, 27, 14, 12);
