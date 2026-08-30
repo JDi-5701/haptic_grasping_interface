@@ -17,6 +17,9 @@ static const Direction FOC_DIRECTION = Direction::CW;
 static const int MOTOR_POLE_PAIRS = 11;
 // ####
 
+// 线圈振动频率 (Hz) - Pacinian 敏感带, 力值 0-10N 调制为振幅
+static const float COIL_VIB_FREQ_HZ = 200.0f;
+
 
 MotorTask::MotorTask(const uint8_t task_core) : Task("Motor", 2500, 1, task_core) {
     Serial.println("MotorTask constructor start");
@@ -256,13 +259,19 @@ void MotorTask::run(){
 
         motor_torque = motor.voltage.q;
 
-        // --- 2D 线圈控制: 500ms 无新指令自动断电 (安全看门狗, 纯新增) ---
+        // --- 2D 线圈振动控制: 500ms 无新指令自动断电 (安全看门狗) ---
+        // 力值 0~10N 线性归一化为振动幅值, 以 200Hz(Pacinian 敏感带) 调制
         if (micros() - coil_timestamp > 500000) {
             coil_force_x = 0.0f;
             coil_force_y = 0.0f;
         }
-        applyCoilControl(CH_X_FWD, CH_X_REV, coil_force_x);
-        applyCoilControl(CH_Y_FWD, CH_Y_REV, coil_force_y);
+        float coil_t = micros() / 1e6f;                                   // 秒
+        float amp_x = std::min(fabsf(coil_force_x) / 10.0f, 1.0f);       // 0~10N → 0~1
+        float amp_y = std::min(fabsf(coil_force_y) / 10.0f, 1.0f);
+        float vib_x = amp_x * sinf(2.0f * PI * COIL_VIB_FREQ_HZ * coil_t);
+        float vib_y = amp_y * sinf(2.0f * PI * COIL_VIB_FREQ_HZ * coil_t);
+        applyCoilControl(CH_X_FWD, CH_X_REV, vib_x);
+        applyCoilControl(CH_Y_FWD, CH_Y_REV, vib_y);
 
         
         // Serial.print("tcp_force: ");
