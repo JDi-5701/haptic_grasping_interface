@@ -265,21 +265,12 @@ void MotorTask::run(){
             coil_force_x = 0.0f;
             coil_force_y = 0.0f;
         }
-        float coil_t = micros() / 1e6f;                                   // 秒
-        // 单方向振动, 符号决定方向: + 只在正方向振, - 只在负方向振; 幅值 = |force| (0~1)
-        float amp_x = std::min(fabsf(coil_force_x), 1.0f);
-        float amp_y = std::min(fabsf(coil_force_y), 1.0f);
-        // 200Hz 方波包络 (50% 占空比): 前半周期 ON(±amp), 后半周期 OFF(0)
-        float phase = coil_t * COIL_VIB_FREQ_HZ;              // 每秒 200 个周期
-        float frac  = phase - floorf(phase);                  // 取小数部分 0~1
-        float s_raised = (frac < 0.5f) ? 1.0f : 0.0f;         // 0.5 = 50% 占空比
-        // 保留 force 的符号, 让正负决定振动方向
-        float sign_x = (coil_force_x >= 0.0f) ? 1.0f : -1.0f;
-        float sign_y = (coil_force_y >= 0.0f) ? 1.0f : -1.0f;
-        float vib_x = sign_x * amp_x * s_raised;             // 要么 ±amp, 要么 0
-        float vib_y = sign_y * amp_y * s_raised;
-        applyCoilControl(CH_X_FWD, CH_X_REV, vib_x);
-        applyCoilControl(CH_Y_FWD, CH_Y_REV, vib_y);
+        // 纯力模式: 线圈直接输出与 force 成比例的恒定强度, 不振动
+        // 限幅到 ±1, 符号决定方向 (正向 fwd 通道, 负向 rev 通道)
+        float force_x = std::min(std::max(coil_force_x, -1.0f), 1.0f);
+        float force_y = std::min(std::max(coil_force_y, -1.0f), 1.0f);
+        applyCoilControl(CH_X_FWD, CH_X_REV, force_x);
+        applyCoilControl(CH_Y_FWD, CH_Y_REV, force_y);
 
         
         // Serial.print("tcp_force: ");
