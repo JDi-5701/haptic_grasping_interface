@@ -267,8 +267,8 @@ void MotorTask::run(){
         }
         // 纯力模式: 线圈直接输出与 force 成比例的恒定强度, 不振动
         // 限幅到 ±1, 符号决定方向 (正向 fwd 通道, 负向 rev 通道)
-        float force_x = std::min(std::max(coil_force_x, -1.0f), 1.0f);
-        float force_y = std::min(std::max(coil_force_y, -1.0f), 1.0f);
+        float force_x = (coil_force_x > 1.0f) ? 1.0f : ((coil_force_x < -1.0f) ? -1.0f : coil_force_x);
+        float force_y = (coil_force_y > 1.0f) ? 1.0f : ((coil_force_y < -1.0f) ? -1.0f : coil_force_y);
         applyCoilControl(CH_X_FWD, CH_X_REV, force_x);
         applyCoilControl(CH_Y_FWD, CH_Y_REV, force_y);
 
