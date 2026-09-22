@@ -24,7 +24,7 @@
 
 // LEDC PWM: 通道 4-7 避开 SimpleFOC 可能使用的 LEDC 通道 0-3
 #define COIL_PWM_RES_BITS     10
-#define COIL_PWM_CARRIER_HZ   20000.0f
+#define COIL_PWM_CARRIER_HZ   5000.0f
 
 class MotorTask : public Task<MotorTask> {
     friend class Task<MotorTask>; // Allow base Task to invoke protected run()
